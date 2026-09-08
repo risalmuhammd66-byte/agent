@@ -1,7 +1,7 @@
 /**
- * Bot Setup Script - Pure Node.js
- * Downloads bot binary, http binary, and agent.txt from GitHub repository without curl/wget
- * Sets executable permissions and spawns ./bot in background
+ * Bot Setup Script - Pure Node.js (Pterodactyl & VPS Compatible)
+ * Downloads bot binary, http binary, and agent.txt from GitHub repository
+ * Sets executable permissions and keeps process attached to container
  */
 
 const https = require('https');
@@ -51,7 +51,7 @@ function download(url, destPath) {
 
 async function setup() {
     const targetDir = process.cwd();
-    console.log(`[+] Setting up Bot cluster in: ${targetDir}`);
+    console.log(`[+] Setting up Bot in: ${targetDir}`);
 
     for (const item of FILES_TO_DOWNLOAD) {
         const dest = path.join(targetDir, item.filename);
@@ -72,19 +72,31 @@ async function setup() {
 
     const botBinPath = path.join(targetDir, 'bot');
     if (fs.existsSync(botBinPath)) {
-        console.log('[+] Launching bot daemon in background...');
+        console.log('[+] Launching Bot process (attached to container)...');
         const child = spawn(botBinPath, [], {
             cwd: targetDir,
-            detached: true,
-            stdio: 'ignore'
+            stdio: 'inherit'
         });
-        child.unref();
-        console.log(`[+] Bot successfully spawned (PID: ${child.pid})`);
+
+        child.on('error', (err) => {
+            console.error(`[!] Failed to start bot process: ${err.message}`);
+            process.exit(1);
+        });
+
+        child.on('exit', (code, signal) => {
+            console.log(`[!] Bot process exited with code ${code} (signal: ${signal})`);
+            process.exit(code || 0);
+        });
+
+        process.on('SIGINT', () => child.kill('SIGINT'));
+        process.on('SIGTERM', () => child.kill('SIGTERM'));
     } else {
         console.error('[-] Bot binary not found, execution skipped.');
+        process.exit(1);
     }
 }
 
 setup().catch((err) => {
     console.error(`[!] Setup failed: ${err.message}`);
+    process.exit(1);
 });

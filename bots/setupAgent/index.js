@@ -1,7 +1,8 @@
 /**
- * Agent Setup Script - Pure Node.js
- * Downloads Agent binaries, runtime files, methods.json, users.json from GitHub repository
- * Sets executable permissions and spawns ./agent
+ * Agent Setup Script - Pure Node.js (Pterodactyl & VPS Compatible)
+ * Automatically detects Pterodactyl ports ($SERVER_PORT, $PORT, $BOT_PORT)
+ * Downloads Agent binaries & configs from GitHub repository
+ * Keeps container active and pipes logs directly to console
  */
 
 const https = require('https');
@@ -27,7 +28,6 @@ function download(url, destPath) {
         const client = url.startsWith('https') ? https : http;
 
         client.get(url, (res) => {
-            // Handle HTTP redirects (301, 302, 307, 308)
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 return download(res.headers.location, destPath).then(resolve).catch(reject);
             }
@@ -58,6 +58,12 @@ async function setup() {
     const targetDir = process.cwd();
     console.log(`[+] Setting up Agent Server in: ${targetDir}`);
 
+    // Auto-detect Pterodactyl container ports
+    const sshPort = process.env.SERVER_PORT || process.env.PORT || '1337';
+    const botPort = process.env.BOT_PORT || (parseInt(sshPort, 10) + 1).toString();
+
+    console.log(`[+] Configured Ports -> SSH Port: ${sshPort} | Bot Listener Port: ${botPort}`);
+
     for (const item of FILES_TO_DOWNLOAD) {
         const dest = path.join(targetDir, item.filename);
         try {
@@ -77,19 +83,33 @@ async function setup() {
 
     const agentBinPath = path.join(targetDir, 'agent');
     if (fs.existsSync(agentBinPath)) {
-        console.log('[+] Launching Agent SSH server in background...');
-        const child = spawn(agentBinPath, [], {
+        console.log(`[+] Launching Agent SSH server (PID will be attached to container)...`);
+        
+        const args = ['-p', sshPort, '-b', botPort];
+        const child = spawn(agentBinPath, args, {
             cwd: targetDir,
-            detached: true,
-            stdio: 'ignore'
+            stdio: 'inherit'
         });
-        child.unref();
-        console.log(`[+] Agent SSH server successfully spawned (PID: ${child.pid})`);
+
+        child.on('error', (err) => {
+            console.error(`[!] Failed to start agent process: ${err.message}`);
+            process.exit(1);
+        });
+
+        child.on('exit', (code, signal) => {
+            console.log(`[!] Agent process exited with code ${code} (signal: ${signal})`);
+            process.exit(code || 0);
+        });
+
+        process.on('SIGINT', () => child.kill('SIGINT'));
+        process.on('SIGTERM', () => child.kill('SIGTERM'));
     } else {
         console.error('[-] Agent binary not found, execution skipped.');
+        process.exit(1);
     }
 }
 
 setup().catch((err) => {
     console.error(`[!] Setup failed: ${err.message}`);
+    process.exit(1);
 });
