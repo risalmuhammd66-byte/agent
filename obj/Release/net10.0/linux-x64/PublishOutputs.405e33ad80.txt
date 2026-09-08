@@ -1,0 +1,8 @@
+/home/leluhurcy/Documents/agent/bin/publish/agent
+/home/leluhurcy/Documents/agent/bin/publish/methods.json
+/home/leluhurcy/Documents/agent/bin/publish/users.json
+/home/leluhurcy/Documents/agent/bin/publish/agent.dll
+/home/leluhurcy/Documents/agent/bin/publish/agent.deps.json
+/home/leluhurcy/Documents/agent/bin/publish/agent.runtimeconfig.json
+/home/leluhurcy/Documents/agent/bin/publish/agent.pdb
+/home/leluhurcy/Documents/agent/bin/publish/FxSsh.dll
