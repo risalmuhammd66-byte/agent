@@ -15,10 +15,6 @@ const REPO_BASE = 'https://raw.githubusercontent.com/cloudflared9-hub/agent/main
 
 const FILES_TO_DOWNLOAD = [
     { url: `${REPO_BASE}/agent`, filename: 'agent', executable: true },
-    { url: `${REPO_BASE}/agent.dll`, filename: 'agent.dll', executable: false },
-    { url: `${REPO_BASE}/agent.runtimeconfig.json`, filename: 'agent.runtimeconfig.json', executable: false },
-    { url: `${REPO_BASE}/agent.deps.json`, filename: 'agent.deps.json', executable: false },
-    { url: `${REPO_BASE}/FxSsh.dll`, filename: 'FxSsh.dll', executable: false },
     { url: `${REPO_BASE}/methods.json`, filename: 'methods.json', executable: false },
     { url: `${REPO_BASE}/users.json`, filename: 'users.json', executable: false }
 ];

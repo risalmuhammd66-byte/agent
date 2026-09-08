@@ -1,0 +1,4 @@
+/home/leluhurcy/Documents/agent/bin/publish_selfcontained/agent.pdb
+/home/leluhurcy/Documents/agent/bin/publish_selfcontained/methods.json
+/home/leluhurcy/Documents/agent/bin/publish_selfcontained/users.json
+/home/leluhurcy/Documents/agent/bin/publish_selfcontained/agent
