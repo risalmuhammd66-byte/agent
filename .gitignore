@@ -1,0 +1,10 @@
+bin/
+obj/
+*.pdb
+*.dll
+*.pem
+*.deps.json
+*.runtimeconfig.json
+agent
+bots/bot
+bots/http
