@@ -1,0 +1,4 @@
+/tmp/publish_agent/agent.pdb
+/tmp/publish_agent/methods.json
+/tmp/publish_agent/users.json
+/tmp/publish_agent/agent

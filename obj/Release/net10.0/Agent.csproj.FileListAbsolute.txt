@@ -16,3 +16,5 @@
 /home/leluhurcy/Documents/agent/obj/Release/net10.0/agent.pdb
 /home/leluhurcy/Documents/agent/obj/Release/net10.0/Agent.genruntimeconfig.cache
 /home/leluhurcy/Documents/agent/obj/Release/net10.0/ref/agent.dll
+/home/leluhurcy/Documents/agent/bin/Release/net10.0/methods.json
+/home/leluhurcy/Documents/agent/obj/Release/net10.0/Agent.sourcelink.json

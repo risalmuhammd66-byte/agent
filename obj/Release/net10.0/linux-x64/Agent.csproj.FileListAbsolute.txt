@@ -17,6 +17,7 @@
 /home/leluhurcy/Documents/agent/obj/Release/net10.0/linux-x64/Agent.genruntimeconfig.cache
 /home/leluhurcy/Documents/agent/obj/Release/net10.0/linux-x64/ref/agent.dll
 /home/leluhurcy/Documents/agent/bin/Release/net10.0/linux-x64/methods.json
+/home/leluhurcy/Documents/agent/obj/Release/net10.0/linux-x64/Agent.sourcelink.json
 /home/leluhurcy/Documents/agent/bin/Release/net10.0/linux-x64/Microsoft.CSharp.dll
 /home/leluhurcy/Documents/agent/bin/Release/net10.0/linux-x64/Microsoft.VisualBasic.Core.dll
 /home/leluhurcy/Documents/agent/bin/Release/net10.0/linux-x64/Microsoft.VisualBasic.dll
@@ -204,4 +205,3 @@
 /home/leluhurcy/Documents/agent/bin/Release/net10.0/linux-x64/libhostpolicy.so
 /home/leluhurcy/Documents/agent/bin/Release/net10.0/linux-x64/libmscordaccore.so
 /home/leluhurcy/Documents/agent/bin/Release/net10.0/linux-x64/libmscordbi.so
-/home/leluhurcy/Documents/agent/obj/Release/net10.0/linux-x64/Agent.sourcelink.json
