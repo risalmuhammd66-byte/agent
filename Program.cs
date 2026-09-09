@@ -240,7 +240,11 @@ namespace Agent
             TcpClient? internalClient = null;
             try
             {
+                externalClient.NoDelay = true;
+                externalClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+
                 internalClient = new TcpClient();
+                internalClient.NoDelay = true;
                 internalClient.Connect(IPAddress.Loopback, _internalSshPort);
 
                 _activeProxyClients[externalClient] = true;
@@ -252,38 +256,53 @@ namespace Agent
                 // Forward the SSH banner that was already read from external client to internal SSH server
                 intStream.Write(prefixData, 0, prefixLen);
 
-                var t1 = Task.Run(() => StreamCopy(extStream, intStream, externalClient, internalClient));
-                var t2 = Task.Run(() => StreamCopy(intStream, extStream, internalClient, externalClient));
+                using var cts = new CancellationTokenSource();
+
+                var t1 = Task.Run(async () =>
+                {
+                    byte[] buf = new byte[8192];
+                    try
+                    {
+                        while (!cts.Token.IsCancellationRequested)
+                        {
+                            int read = await extStream.ReadAsync(buf, 0, buf.Length, cts.Token);
+                            if (read <= 0) break;
+                            await intStream.WriteAsync(buf, 0, read, cts.Token);
+                            await intStream.FlushAsync(cts.Token);
+                        }
+                    }
+                    catch { }
+                    finally { cts.Cancel(); }
+                });
+
+                var t2 = Task.Run(async () =>
+                {
+                    byte[] buf = new byte[8192];
+                    try
+                    {
+                        while (!cts.Token.IsCancellationRequested)
+                        {
+                            int read = await intStream.ReadAsync(buf, 0, buf.Length, cts.Token);
+                            if (read <= 0) break;
+                            await extStream.WriteAsync(buf, 0, read, cts.Token);
+                            await extStream.FlushAsync(cts.Token);
+                        }
+                    }
+                    catch { }
+                    finally { cts.Cancel(); }
+                });
 
                 Task.WaitAny(t1, t2);
-            }
-            catch
-            {
-                try { externalClient.Close(); } catch { }
-                try { internalClient?.Close(); } catch { }
-            }
-        }
-
-        private static void StreamCopy(NetworkStream from, NetworkStream to, TcpClient c1, TcpClient c2)
-        {
-            byte[] buf = new byte[4096];
-            try
-            {
-                int read;
-                while ((read = from.Read(buf, 0, buf.Length)) > 0)
-                {
-                    to.Write(buf, 0, read);
-                }
             }
             catch
             {
             }
             finally
             {
-                _activeProxyClients.TryRemove(c1, out _);
-                _activeProxyClients.TryRemove(c2, out _);
-                try { c1.Close(); } catch { }
-                try { c2.Close(); } catch { }
+                _activeProxyClients.TryRemove(externalClient, out _);
+                if (internalClient != null) _activeProxyClients.TryRemove(internalClient, out _);
+                try { externalClient.Close(); } catch { }
+                try { internalClient?.Close(); } catch { }
             }
         }
 
