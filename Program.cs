@@ -82,6 +82,16 @@ namespace Agent
 
             server.ConnectionAccepted += (sender, session) =>
             {
+                try
+                {
+                    // Disable FxSsh default 30s session timeout and activate 5s SSH keep-alive
+                    session.ConfigureKeepalive(TimeSpan.FromSeconds(5));
+
+                    var timeoutField = typeof(Session).GetField("_timeout", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    timeoutField?.SetValue(session, TimeSpan.FromDays(365));
+                }
+                catch { }
+
                 session.ServiceRegistered += (s, service) =>
                 {
                     if (service is UserAuthService auth)
