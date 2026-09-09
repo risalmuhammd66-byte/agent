@@ -1,6 +1,0 @@
-[
-  {
-    "name": "http",
-    "cmd": "./http {host} {port} {time}"
-  }
-]

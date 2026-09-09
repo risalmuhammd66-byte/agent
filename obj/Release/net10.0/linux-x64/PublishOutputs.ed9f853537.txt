@@ -1,3 +1,0 @@
-/home/leluhurcy/Documents/agent/bin-output/agent.pdb
-/home/leluhurcy/Documents/agent/bin-output/users.json
-/home/leluhurcy/Documents/agent/bin-output/agent
