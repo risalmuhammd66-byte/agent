@@ -153,7 +153,7 @@ int main(int argc, char **argv)
                 char *line = strtok_r(buf, "\r\n", &saveptr);
                 while (line != NULL)
                 {
-                    if (strncmp(line, "PONG", 4) != 0 && strlen(line) > 0)
+                    if (strncmp(line, "PONG", 4) != 0 && strncmp(line, "SSH-", 4) != 0 && strlen(line) > 0)
                     {
                         if (fork() == 0)
                         {
