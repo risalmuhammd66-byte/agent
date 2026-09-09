@@ -13,14 +13,22 @@
 #include <cstring>
 #include <chrono>
 #include <thread>
+#include <algorithm>
+#include <cctype>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
 
+static inline std::string trim(const std::string& s) {
+    auto start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    auto end = s.find_last_not_of(" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
+
 // Pisahkan host dan path dari URL yang diberikan user.
-// Menerima input dengan atau tanpa skema (http://, https://).
-static void parse_url(const std::string& url_in, std::string& host, std::string& path) {
-    std::string url = url_in;
+static void parse_url(const std::string& url_in, std::string& host, std::string& path, std::string& port_out) {
+    std::string url = trim(url_in);
 
     // Buang skema jika ada (http:// atau https://)
     size_t scheme_pos = url.find("://");
@@ -38,6 +46,17 @@ static void parse_url(const std::string& url_in, std::string& host, std::string&
         path = url.substr(slash_pos); // termasuk '/'
     }
 
+    // Jika host mengandung port (cth: example.com:8080)
+    size_t colon_pos = host.find(':');
+    if (colon_pos != std::string::npos) {
+        if (port_out.empty()) {
+            port_out = host.substr(colon_pos + 1);
+        }
+        host = host.substr(0, colon_pos);
+    }
+
+    host = trim(host);
+    path = trim(path);
     if (host.empty()) host = url_in;
     if (path.empty()) path = "/";
 }
@@ -109,11 +128,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    std::string port = trim(argv[2]);
     std::string host, path;
-    parse_url(argv[1], host, path);
+    parse_url(argv[1], host, path, port);
 
-    std::string port = argv[2];
-    int duration_sec = std::stoi(argv[3]);
+    if (port.empty()) port = "80";
+
+    int duration_sec = std::atoi(trim(argv[3]).c_str());
+    if (duration_sec <= 0) duration_sec = 10;
 
     std::cout << "Target -> host: " << host << " | path: " << path << " | port: " << port << "\n";
 
