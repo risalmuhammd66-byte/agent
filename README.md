@@ -150,11 +150,20 @@ Once connected via SSH, the following commands are supported:
 | Command | Description |
 | :--- | :--- |
 | `help` | Displays available management commands |
-| `methods` | Lists available attack / execution methods categorized under Layer 7 |
+| `methods` | Lists all 34 attack & flood methods categorized vertically with full descriptions |
 | `bots` | Displays the current number of connected bot clients |
 | `clear` / `cls` | Clears the terminal screen |
 | `exit` / `quit` | Terminates the SSH session |
-| `http <host> <port> <time>` | Dispatches HTTP flood command to all active bots |
+| `.<method> <host> <port> <time>` | Dispatches specified attack method to all active bots (e.g. `.https https://example.com 443 60`) |
+
+### Supported Attack Methods (`methods`)
+
+The server categorizes 34 methods into clear layers:
+- **Layer 4 UDP (Amplification & Bypass):** `.dns`, `.udp`, `.ldap`, `.ssdp`, `.home`, `.udpbypass`
+- **Layer 4 TCP (Flood & Bypass):** `.tcp`, `.socket`, `.ovh`, `.tcpmix`, `.tcpbypass`, `.ack`
+- **Layer 4 Game (Specialized UDP / TCP):** `.game`, `.rainbow`, `.rocket`, `.roblox`, `.fivem`, `.pubg`, `.fortnite`, `.warthunder`, `.counter`, `.samp`
+- **Layer 3 (Network Protocols):** `.subnet`, `.icmp`
+- **Layer 7 (HTTP / HTTPS / Application):** `.http`, `.https`, `.httpx`, `.rapidflood`, `.tls`, `.tlsx`, `.bypass`, `.browser`, `.cache`, `.cloudflare`
 
 ---
 
