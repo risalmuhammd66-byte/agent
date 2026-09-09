@@ -298,13 +298,7 @@ namespace Agent
                     }
                 });
 
-                try
-                {
-                    Task.WaitAll(new Task[] { t1, t2 }, 1500, cts.Token);
-                }
-                catch { }
-
-                Task.WaitAny(t1, t2);
+                Task.WaitAll(t1, t2);
             }
             catch
             {
