@@ -370,8 +370,6 @@ static void worker_https(const std::string &method, SSL_CTX *ctx, const std::str
     sin.sin_port = htons(port > 0 ? port : 443);
     inet_pton(AF_INET, target_ip.c_str(), &sin.sin_addr);
 
-    char recv_buf[1024];
-
     while (g_running.load(std::memory_order_relaxed)) {
         int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (sock < 0) {
@@ -379,7 +377,7 @@ static void worker_https(const std::string &method, SSL_CTX *ctx, const std::str
             continue;
         }
 
-        struct timeval tv{3, 0};
+        struct timeval tv{2, 0};
         setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
@@ -393,8 +391,6 @@ static void worker_https(const std::string &method, SSL_CTX *ctx, const std::str
                     std::string req = build_http_request(method, host, path);
                     if (SSL_write(ssl, req.c_str(), (int)req.size()) > 0) {
                         g_total_packets.fetch_add(1, std::memory_order_relaxed);
-                        // Read response bytes to complete transaction
-                        SSL_read(ssl, recv_buf, sizeof(recv_buf));
                     }
                 }
                 SSL_shutdown(ssl);
