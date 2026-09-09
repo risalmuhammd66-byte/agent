@@ -31,6 +31,17 @@ namespace Agent
         public string Cmd { get; set; } = string.Empty;
     }
 
+    public class LineEditorState
+    {
+        public StringBuilder Buffer { get; } = new();
+        public int CursorPos { get; set; } = 0;
+        public List<string> History { get; } = new();
+        public int HistoryIndex { get; set; } = -1;
+        public string SavedCurrentInput { get; set; } = string.Empty;
+        public List<byte> EscapeSeq { get; } = new();
+        public bool InEscape { get; set; } = false;
+    }
+
     internal class Program
     {
         private static int _port = 1337;
@@ -38,7 +49,7 @@ namespace Agent
         private static int _botCount = 0;
         private static List<UserConfig> _users = new();
         private static List<MethodConfig> _methods = new();
-        private static readonly ConcurrentDictionary<Channel, StringBuilder> _inputBuffers = new();
+        private static readonly ConcurrentDictionary<Channel, LineEditorState> _sessionStates = new();
         private static readonly ConcurrentDictionary<Channel, string> _channelUsers = new();
         private static readonly ConcurrentDictionary<TcpClient, NetworkStream> _botStreams = new();
         private static readonly ConcurrentDictionary<TcpClient, bool> _activeProxyClients = new();
@@ -116,7 +127,7 @@ namespace Agent
                             var channel = cmdArgs.Channel;
                             string username = cmdArgs.AttachedUserAuthArgs?.Username ?? "root";
                             _channelUsers[channel] = username;
-                            _inputBuffers[channel] = new StringBuilder();
+                            _sessionStates[channel] = new LineEditorState();
 
                             channel.DataReceived += (s3, dataMem) =>
                             {
@@ -125,7 +136,7 @@ namespace Agent
 
                             channel.CloseReceived += (s3, e) =>
                             {
-                                _inputBuffers.TryRemove(channel, out _);
+                                _sessionStates.TryRemove(channel, out _);
                                 _channelUsers.TryRemove(channel, out _);
                             };
 
@@ -421,10 +432,10 @@ namespace Agent
 
         private static void HandleSessionData(Channel channel, byte[] data)
         {
-            if (!_inputBuffers.TryGetValue(channel, out var buffer))
+            if (!_sessionStates.TryGetValue(channel, out var state))
             {
-                buffer = new StringBuilder();
-                _inputBuffers[channel] = buffer;
+                state = new LineEditorState();
+                _sessionStates[channel] = state;
             }
 
             _channelUsers.TryGetValue(channel, out var username);
@@ -434,12 +445,63 @@ namespace Agent
             {
                 byte b = data[i];
 
+                if (state.InEscape)
+                {
+                    state.EscapeSeq.Add(b);
+
+                    // CSI sequence parsing: starts with 0x1b, '[', followed by parameter bytes, ending with final byte (0x40 - 0x7E)
+                    if (state.EscapeSeq.Count >= 2 && state.EscapeSeq[0] == 0x1B && state.EscapeSeq[1] == (byte)'[')
+                    {
+                        if (b >= 0x40 && b <= 0x7E)
+                        {
+                            // Sequence complete
+                            HandleEscapeSequence(channel, state, state.EscapeSeq);
+                            state.InEscape = false;
+                            state.EscapeSeq.Clear();
+                        }
+                    }
+                    else if (state.EscapeSeq.Count >= 2 && state.EscapeSeq[0] == 0x1B && state.EscapeSeq[1] == (byte)'O')
+                    {
+                        // SS3 sequence (e.g., \x1bOA, \x1bOB)
+                        HandleEscapeSequence(channel, state, state.EscapeSeq);
+                        state.InEscape = false;
+                        state.EscapeSeq.Clear();
+                    }
+                    else if (state.EscapeSeq.Count > 8)
+                    {
+                        // Too long / unknown escape, discard
+                        state.InEscape = false;
+                        state.EscapeSeq.Clear();
+                    }
+                    continue;
+                }
+
+                if (b == 0x1B) // ESC
+                {
+                    state.InEscape = true;
+                    state.EscapeSeq.Clear();
+                    state.EscapeSeq.Add(b);
+                    continue;
+                }
+
                 if (b == '\r' || b == '\n')
                 {
                     channel.SendData(Encoding.UTF8.GetBytes("\r\n"));
 
-                    string command = buffer.ToString().Trim();
-                    buffer.Clear();
+                    string command = state.Buffer.ToString().Trim();
+                    if (!string.IsNullOrEmpty(command))
+                    {
+                        // Add to history (avoid consecutive duplicates)
+                        if (state.History.Count == 0 || state.History[state.History.Count - 1] != command)
+                        {
+                            state.History.Add(command);
+                        }
+                    }
+
+                    state.Buffer.Clear();
+                    state.CursorPos = 0;
+                    state.HistoryIndex = -1;
+                    state.SavedCurrentInput = string.Empty;
 
                     if (!string.IsNullOrEmpty(command))
                     {
@@ -448,26 +510,155 @@ namespace Agent
 
                     channel.SendData(Encoding.UTF8.GetBytes($"{GetTitleSequence()}[\x1b[94m{username}\x1b[0m@\x1b[94maihui\x1b[0m] "));
                 }
-                else if (b == 0x08 || b == 0x7F)
+                else if (b == 0x08 || b == 0x7F) // Backspace
                 {
-                    if (buffer.Length > 0)
+                    if (state.CursorPos > 0)
                     {
-                        buffer.Remove(buffer.Length - 1, 1);
-                        channel.SendData(new byte[] { 0x08, 0x20, 0x08 });
+                        state.Buffer.Remove(state.CursorPos - 1, 1);
+                        state.CursorPos--;
+
+                        // Redraw from cursor pos to end of line, then move cursor back
+                        string remaining = state.Buffer.ToString().Substring(state.CursorPos) + " ";
+                        string backSequence = new string('\b', remaining.Length);
+                        channel.SendData(Encoding.UTF8.GetBytes($"\b{remaining}{backSequence}"));
+                        if (state.CursorPos < state.Buffer.Length)
+                        {
+                            int shift = state.Buffer.Length - state.CursorPos;
+                            channel.SendData(Encoding.UTF8.GetBytes(new string('\b', shift)));
+                        }
                     }
                 }
-                else if (b == 0x03)
+                else if (b == 0x03) // Ctrl+C
                 {
-                    buffer.Clear();
+                    state.Buffer.Clear();
+                    state.CursorPos = 0;
+                    state.HistoryIndex = -1;
+                    state.SavedCurrentInput = string.Empty;
+
                     channel.SendData(Encoding.UTF8.GetBytes("^C\r\n"));
                     channel.SendData(Encoding.UTF8.GetBytes($"{GetTitleSequence()}[\x1b[94m{username}\x1b[0m@\x1b[94maihui\x1b[0m] "));
                 }
-                else if (b >= 32 && b <= 126)
+                else if (b >= 32 && b <= 126) // Printable characters
                 {
-                    buffer.Append((char)b);
-                    channel.SendData(new byte[] { b });
+                    char c = (char)b;
+                    if (state.CursorPos == state.Buffer.Length)
+                    {
+                        state.Buffer.Append(c);
+                        state.CursorPos++;
+                        channel.SendData(new byte[] { b });
+                    }
+                    else
+                    {
+                        state.Buffer.Insert(state.CursorPos, c);
+                        state.CursorPos++;
+                        string tail = state.Buffer.ToString().Substring(state.CursorPos - 1);
+                        int shift = state.Buffer.Length - state.CursorPos;
+                        string moveBack = shift > 0 ? new string('\b', shift) : "";
+                        channel.SendData(Encoding.UTF8.GetBytes(tail + moveBack));
+                    }
                 }
             }
+        }
+
+        private static void HandleEscapeSequence(Channel channel, LineEditorState state, List<byte> seq)
+        {
+            string s = Encoding.ASCII.GetString(seq.ToArray());
+
+            if (s == "\x1b[A" || s == "\x1bOA") // UP Arrow
+            {
+                if (state.History.Count == 0) return;
+
+                if (state.HistoryIndex == -1)
+                {
+                    state.SavedCurrentInput = state.Buffer.ToString();
+                    state.HistoryIndex = state.History.Count - 1;
+                }
+                else if (state.HistoryIndex > 0)
+                {
+                    state.HistoryIndex--;
+                }
+
+                SetInputBuffer(channel, state, state.History[state.HistoryIndex]);
+            }
+            else if (s == "\x1b[B" || s == "\x1bOB") // DOWN Arrow
+            {
+                if (state.HistoryIndex == -1) return;
+
+                if (state.HistoryIndex < state.History.Count - 1)
+                {
+                    state.HistoryIndex++;
+                    SetInputBuffer(channel, state, state.History[state.HistoryIndex]);
+                }
+                else
+                {
+                    state.HistoryIndex = -1;
+                    SetInputBuffer(channel, state, state.SavedCurrentInput);
+                }
+            }
+            else if (s == "\x1b[C" || s == "\x1bOC") // RIGHT Arrow
+            {
+                if (state.CursorPos < state.Buffer.Length)
+                {
+                    state.CursorPos++;
+                    channel.SendData(Encoding.ASCII.GetBytes("\x1b[C"));
+                }
+            }
+            else if (s == "\x1b[D" || s == "\x1bOD") // LEFT Arrow
+            {
+                if (state.CursorPos > 0)
+                {
+                    state.CursorPos--;
+                    channel.SendData(Encoding.ASCII.GetBytes("\x1b[D"));
+                }
+            }
+            else if (s == "\x1b[H" || s == "\x1b[1~" || s == "\x1b[7~") // HOME Key
+            {
+                if (state.CursorPos > 0)
+                {
+                    channel.SendData(Encoding.ASCII.GetBytes($"\x1b[{state.CursorPos}D"));
+                    state.CursorPos = 0;
+                }
+            }
+            else if (s == "\x1b[F" || s == "\x1b[4~" || s == "\x1b[8~") // END Key
+            {
+                int diff = state.Buffer.Length - state.CursorPos;
+                if (diff > 0)
+                {
+                    channel.SendData(Encoding.ASCII.GetBytes($"\x1b[{diff}C"));
+                    state.CursorPos = state.Buffer.Length;
+                }
+            }
+            else if (s == "\x1b[3~") // DELETE Key
+            {
+                if (state.CursorPos < state.Buffer.Length)
+                {
+                    state.Buffer.Remove(state.CursorPos, 1);
+                    string tail = state.Buffer.ToString().Substring(state.CursorPos) + " ";
+                    int shift = state.Buffer.Length - state.CursorPos + 1;
+                    string moveBack = new string('\b', shift);
+                    channel.SendData(Encoding.UTF8.GetBytes(tail + moveBack));
+                }
+            }
+        }
+
+        private static void SetInputBuffer(Channel channel, LineEditorState state, string newText)
+        {
+            // Move cursor to start of buffer
+            if (state.CursorPos > 0)
+            {
+                channel.SendData(Encoding.ASCII.GetBytes($"\x1b[{state.CursorPos}D"));
+            }
+
+            // Clear to end of line
+            channel.SendData(Encoding.ASCII.GetBytes("\x1b[K"));
+
+            // Replace buffer
+            state.Buffer.Clear();
+            state.Buffer.Append(newText);
+            state.CursorPos = newText.Length;
+
+            // Render new text
+            channel.SendData(Encoding.UTF8.GetBytes(newText));
         }
 
         private static void ProcessCommand(Channel channel, string command)
