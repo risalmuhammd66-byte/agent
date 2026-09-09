@@ -113,7 +113,7 @@
   },
   {
     "name": "tls",
-    "cmd": "./tls tls {host} {time} 999999999"
+    "cmd": "./tls {host} {time} 999999999"
   },
   {
     "name": "tlsx",
