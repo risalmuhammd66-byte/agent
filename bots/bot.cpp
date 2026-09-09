@@ -205,6 +205,7 @@ int main(int argc, char **argv)
             }
             else
             {
+                printf("[*] Sending keep-alive PING to Agent...\n");
                 sendline("PING\n");
             }
 
