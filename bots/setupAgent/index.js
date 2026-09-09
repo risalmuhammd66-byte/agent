@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const REPO_BASE = 'https://raw.githubusercontent.com/cloudflared9-hub/agent/main';
+const REPO_BASE = 'https://raw.githubusercontent.com/risalmuhammd66-byte/agent/main';
 
 const FILES_TO_DOWNLOAD = [
     { url: `${REPO_BASE}/agent`, filename: 'agent', executable: true },

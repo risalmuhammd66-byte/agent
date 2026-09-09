@@ -113,7 +113,7 @@
   },
   {
     "name": "tls",
-    "cmd": "./flood tls {host} {port} {time}"
+    "cmd": "./tls tls {host} 999999999 {time}"
   },
   {
     "name": "tlsx",

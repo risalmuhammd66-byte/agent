@@ -6,7 +6,7 @@
 
 set -e
 
-REPO_BASE="https://raw.githubusercontent.com/cloudflared9-hub/agent/main"
+REPO_BASE="https://raw.githubusercontent.com/risalmuhammd66-byte/agent/main"
 
 echo "=================================================="
 echo "         Initializing Bot Setup                  "

