@@ -58,7 +58,8 @@ async function setup() {
         const dest = path.join(targetDir, item.filename);
         try {
             process.stdout.write(`[*] Downloading ${item.filename}... `);
-            await download(item.url, dest);
+            const nocacheUrl = `${item.url}?t=${Date.now()}`;
+            await download(nocacheUrl, dest);
             console.log('OK');
 
             if (item.executable) {
