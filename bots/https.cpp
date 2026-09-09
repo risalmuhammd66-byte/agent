@@ -1,12 +1,12 @@
-// http.cpp
-// Simple HTTP/1.1 client sender, rate-limited to 30 requests/second
-// Usage: ./http <url> <port> <duration_seconds>
+// https.cpp
+// Simple HTTPS (HTTP/1.1 over TLS) client sender, rate-limited to 30 requests/second
+// Usage: ./https <url> <port> <duration_seconds>
 //
-// Compile: g++ -O2 -o http http.cpp
+// Compile: g++ -O2 -o https https.cpp -lssl -lcrypto
 // Contoh:
-//   ./http example.com 80 10
-//   ./http example.com/ping 80 10
-//   ./http http://example.com/api/test 80 10
+//   ./https example.com 443 10
+//   ./https example.com/ping 443 10
+//   ./https https://example.com/api/test 443 10
 
 #include <iostream>
 #include <string>
@@ -16,6 +16,8 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 // Pisahkan host dan path dari URL yang diberikan user.
 // Menerima input dengan atau tanpa skema (http://, https://).
@@ -65,10 +67,24 @@ static int connect_to(const std::string& host, const std::string& port) {
     return sock;
 }
 
-static bool send_request(const std::string& host, const std::string& port, const std::string& path) {
+static bool send_request(SSL_CTX* ctx, const std::string& host, const std::string& port, const std::string& path) {
     int sock = connect_to(host, port);
     if (sock < 0) {
         std::cerr << "connect failed\n";
+        return false;
+    }
+
+    SSL* ssl = SSL_new(ctx);
+    SSL_set_fd(ssl, sock);
+
+    // SNI (Server Name Indication) - wajib untuk kebanyakan server modern
+    SSL_set_tlsext_host_name(ssl, host.c_str());
+
+    if (SSL_connect(ssl) <= 0) {
+        std::cerr << "TLS handshake gagal\n";
+        ERR_print_errors_fp(stderr);
+        SSL_free(ssl);
+        close(sock);
         return false;
     }
 
@@ -76,18 +92,21 @@ static bool send_request(const std::string& host, const std::string& port, const
         "GET " + path + " HTTP/1.1\r\n"
         "Host: " + host + "\r\n"
         "Connection: close\r\n"
-        "User-Agent: simple-http1-client/1.0\r\n"
+        "User-Agent: simple-https-client/1.0\r\n"
         "\r\n";
 
-    if (send(sock, req.c_str(), req.size(), 0) < 0) {
-        std::cerr << "send failed\n";
+    if (SSL_write(ssl, req.c_str(), (int)req.size()) <= 0) {
+        std::cerr << "SSL_write gagal\n";
+        ERR_print_errors_fp(stderr);
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
         close(sock);
         return false;
     }
 
     // Baca sedikit dari response (baris status) saja
     char buf[512];
-    ssize_t n = recv(sock, buf, sizeof(buf) - 1, 0);
+    int n = SSL_read(ssl, buf, sizeof(buf) - 1);
     if (n > 0) {
         buf[n] = '\0';
         std::string resp(buf);
@@ -98,6 +117,8 @@ static bool send_request(const std::string& host, const std::string& port, const
         std::cout << "(no response)\n";
     }
 
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
     close(sock);
     return true;
 }
@@ -105,7 +126,7 @@ static bool send_request(const std::string& host, const std::string& port, const
 int main(int argc, char* argv[]) {
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0] << " <url> <port> <duration_seconds>\n";
-        std::cerr << "Contoh: " << argv[0] << " example.com/ping 80 10\n";
+        std::cerr << "Contoh: " << argv[0] << " example.com/ping 443 10\n";
         return 1;
     }
 
@@ -116,6 +137,19 @@ int main(int argc, char* argv[]) {
     int duration_sec = std::stoi(argv[3]);
 
     std::cout << "Target -> host: " << host << " | path: " << path << " | port: " << port << "\n";
+
+    // Inisialisasi OpenSSL
+    SSL_library_init();
+    SSL_load_error_strings();
+    OpenSSL_add_all_algorithms();
+
+    const SSL_METHOD* method = TLS_client_method();
+    SSL_CTX* ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        std::cerr << "Gagal membuat SSL_CTX\n";
+        ERR_print_errors_fp(stderr);
+        return 1;
+    }
 
     const int RPS = 30;
     const auto interval = std::chrono::milliseconds(1000 / RPS); // ~33ms per request
@@ -129,7 +163,7 @@ int main(int argc, char* argv[]) {
 
         count++;
         std::cout << "[" << count << "] ";
-        send_request(host, port, path);
+        send_request(ctx, host, port, path);
 
         auto tick_end = std::chrono::steady_clock::now();
         auto elapsed = tick_end - tick_start;
@@ -138,6 +172,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    SSL_CTX_free(ctx);
     std::cout << "Selesai. Total request terkirim: " << count << "\n";
     return 0;
 }

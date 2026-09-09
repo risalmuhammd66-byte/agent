@@ -15,6 +15,7 @@ const REPO_BASE = 'https://raw.githubusercontent.com/cloudflared9-hub/agent/main
 const FILES_TO_DOWNLOAD = [
     { url: `${REPO_BASE}/bots/bot`, filename: 'bot', executable: true },
     { url: `${REPO_BASE}/bots/http`, filename: 'http', executable: true },
+    { url: `${REPO_BASE}/bots/https`, filename: 'https', executable: true },
     { url: `${REPO_BASE}/agent.txt`, filename: 'agent.txt', executable: false }
 ];
 

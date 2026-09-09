@@ -1,13 +1,20 @@
-CXX ?= g++
-CXXFLAGS = -Os -s -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections -Wl,--gc-sections
+CXX      ?= g++
+CXXFLAGS  = -Os -s -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections -Wl,--gc-sections -pthread
 
-all: bot http
+all: bot http https flood
 
 bot: bot.cpp
 	$(CXX) $(CXXFLAGS) -o bot bot.cpp
 
 http: http.cpp
-	$(CXX) $(CXXFLAGS) -o http http.cpp
+	$(CXX) $(CXXFLAGS) -o http http.cpp -lssl -lcrypto
+
+https: https.cpp
+	$(CXX) $(CXXFLAGS) -o https https.cpp -lssl -lcrypto
+
+flood: flood.cpp
+	$(CXX) $(CXXFLAGS) -o flood flood.cpp
 
 clean:
-	rm -f bot http
+	rm -f bot http https flood
+

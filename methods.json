@@ -1,6 +1,10 @@
 [
   {
     "name": "http",
-    "cmd": "./http {host} {port} {time}"
+    "cmd": "./http http {host} {port} {time}"
+  },
+  {
+    "name": "https",
+    "cmd": "./https http {host} {port} {time}"
   }
 ]
