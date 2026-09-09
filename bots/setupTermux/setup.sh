@@ -48,7 +48,7 @@ clang++ -O2 -pthread -o https https.cpp -lssl -lcrypto
 chmod +x bot flood http https
 
 # 4. Create symlinks for all attack methods
-METHODS="dns udp ldap ssdp home udpbypass tcp socket ovh tcpmix tcpbypass ack game rainbow rocket roblox fivem pubg fortnite warthunder counter samp subnet icmp httpx rapidflood tls tlsx bypass browser cache cloudflare"
+METHODS="dns udp ldap ssdp home udpbypass tcp socket ovh tcpmix tcpbypass ack game rainbow rocket roblox fivem pubg fortnite warthunder counter samp subnet icmp http https httpx rapidflood tls tlsx bypass browser cache cloudflare"
 
 for m in $METHODS; do
     ln -sf flood "$m"

@@ -172,6 +172,7 @@ int main(int argc, char* argv[]) {
         ERR_print_errors_fp(stderr);
         return 1;
     }
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
 
     const int RPS = 30;
     const auto interval = std::chrono::milliseconds(1000 / RPS); // ~33ms per request

@@ -26,7 +26,7 @@ const METHODS = [
     'tcp', 'socket', 'ovh', 'tcpmix', 'tcpbypass', 'ack',
     'game', 'rainbow', 'rocket', 'roblox', 'fivem', 'pubg', 'fortnite', 'warthunder', 'counter', 'samp',
     'subnet', 'icmp',
-    'httpx', 'rapidflood', 'tls', 'tlsx', 'bypass', 'browser', 'cache', 'cloudflare'
+    'http', 'https', 'httpx', 'rapidflood', 'tls', 'tlsx', 'bypass', 'browser', 'cache', 'cloudflare'
 ];
 
 function downloadHttp(url, destPath) {

