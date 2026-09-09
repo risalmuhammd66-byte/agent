@@ -18,7 +18,7 @@
 #include <unistd.h>
 
 // Pisahkan host dan path dari URL yang diberikan user.
-// Menerima input dengan atau tanpa skema (http://, https://).
+// Menerima input dengan atau tanpa skema (http://, https://) dan port jika ada (cth: example.com:8080/test)
 static void parse_url(const std::string& url_in, std::string& host, std::string& path) {
     std::string url = url_in;
 
@@ -36,6 +36,12 @@ static void parse_url(const std::string& url_in, std::string& host, std::string&
     } else {
         host = url.substr(0, slash_pos);
         path = url.substr(slash_pos); // termasuk '/'
+    }
+
+    // Jika user menuliskan port di dalam host (cth: example.com:80), pisahkan
+    size_t colon_pos = host.find(':');
+    if (colon_pos != std::string::npos) {
+        host = host.substr(0, colon_pos);
     }
 
     if (host.empty()) host = url_in;
@@ -72,11 +78,18 @@ static bool send_request(const std::string& host, const std::string& port, const
         return false;
     }
 
+    std::string host_hdr = host;
+    if (port != "80" && port != "443") {
+        host_hdr = host + ":" + port;
+    }
+
     std::string req =
         "GET " + path + " HTTP/1.1\r\n"
-        "Host: " + host + "\r\n"
+        "Host: " + host_hdr + "\r\n"
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n"
+        "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n"
+        "Accept-Language: en-US,en;q=0.5\r\n"
         "Connection: close\r\n"
-        "User-Agent: simple-http1-client/1.0\r\n"
         "\r\n";
 
     if (send(sock, req.c_str(), req.size(), 0) < 0) {
