@@ -71,7 +71,14 @@ static int connect_to(const std::string& host, const std::string& port) {
     return sock;
 }
 
-static bool send_request(const std::string& host, const std::string& port, const std::string& path) {
+static const char* USER_AGENTS[] = {
+    "curl/8.22.0",
+    "Wget/1.25.0",
+    "wget2/2.2.0"
+};
+static const size_t USER_AGENTS_COUNT = sizeof(USER_AGENTS) / sizeof(USER_AGENTS[0]);
+
+static bool send_request(const std::string& host, const std::string& port, const std::string& path, int index) {
     int sock = connect_to(host, port);
     if (sock < 0) {
         std::cerr << "connect failed\n";
@@ -83,12 +90,13 @@ static bool send_request(const std::string& host, const std::string& port, const
         host_hdr = host + ":" + port;
     }
 
+    const char* ua = USER_AGENTS[index % USER_AGENTS_COUNT];
+
     std::string req =
         "GET " + path + " HTTP/1.1\r\n"
         "Host: " + host_hdr + "\r\n"
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n"
-        "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n"
-        "Accept-Language: en-US,en;q=0.5\r\n"
+        "User-Agent: " + ua + "\r\n"
+        "Accept: */*\r\n"
         "Connection: close\r\n"
         "\r\n";
 
@@ -142,7 +150,7 @@ int main(int argc, char* argv[]) {
 
         count++;
         std::cout << "[" << count << "] ";
-        send_request(host, port, path);
+        send_request(host, port, path, count);
 
         auto tick_end = std::chrono::steady_clock::now();
         auto elapsed = tick_end - tick_start;
