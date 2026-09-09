@@ -241,10 +241,16 @@ namespace Agent
             try
             {
                 externalClient.NoDelay = true;
+                externalClient.ReceiveTimeout = 0;
+                externalClient.SendTimeout = 0;
+                externalClient.Client.ReceiveTimeout = 0;
+                externalClient.Client.SendTimeout = 0;
                 externalClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
 
                 internalClient = new TcpClient();
                 internalClient.NoDelay = true;
+                internalClient.ReceiveTimeout = 0;
+                internalClient.SendTimeout = 0;
                 internalClient.Connect(IPAddress.Loopback, _internalSshPort);
 
                 _activeProxyClients[externalClient] = true;
@@ -258,17 +264,17 @@ namespace Agent
 
                 using var cts = new CancellationTokenSource();
 
-                var t1 = Task.Run(async () =>
+                var t1 = Task.Run(() =>
                 {
                     byte[] buf = new byte[8192];
                     try
                     {
-                        while (!cts.Token.IsCancellationRequested)
+                        while (externalClient.Connected && internalClient.Connected)
                         {
-                            int read = await extStream.ReadAsync(buf, 0, buf.Length, cts.Token);
+                            int read = extStream.Read(buf, 0, buf.Length);
                             if (read <= 0) break;
-                            await intStream.WriteAsync(buf, 0, read, cts.Token);
-                            await intStream.FlushAsync(cts.Token);
+                            intStream.Write(buf, 0, read);
+                            intStream.Flush();
                         }
                     }
                     catch { }
@@ -278,17 +284,17 @@ namespace Agent
                     }
                 });
 
-                var t2 = Task.Run(async () =>
+                var t2 = Task.Run(() =>
                 {
                     byte[] buf = new byte[8192];
                     try
                     {
-                        while (!cts.Token.IsCancellationRequested)
+                        while (externalClient.Connected && internalClient.Connected)
                         {
-                            int read = await intStream.ReadAsync(buf, 0, buf.Length, cts.Token);
+                            int read = intStream.Read(buf, 0, buf.Length);
                             if (read <= 0) break;
-                            await extStream.WriteAsync(buf, 0, read, cts.Token);
-                            await extStream.FlushAsync(cts.Token);
+                            extStream.Write(buf, 0, read);
+                            extStream.Flush();
                         }
                     }
                     catch { }
@@ -298,7 +304,11 @@ namespace Agent
                     }
                 });
 
-                Task.WaitAll(t1, t2);
+                // Wait until one side explicitly disconnects (e.g. user types exit or closes client)
+                while (!cts.Token.IsCancellationRequested && externalClient.Connected && internalClient.Connected)
+                {
+                    Thread.Sleep(100);
+                }
             }
             catch
             {
