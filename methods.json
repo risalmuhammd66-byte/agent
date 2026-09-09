@@ -113,14 +113,14 @@
   },
   {
     "name": "tls",
-    "cmd": "./tls tls {host} 999999999 {time}"
+    "cmd": "./tls tls {host} {time} 999999999"
   },
   {
     "name": "tlsx",
     "cmd": "./flood tlsx {host} {port} {time}"
   },
   {
-    "name": "bypass",
+    "name": "bypass", 
     "cmd": "./flood bypass {host} {port} {time}"
   },
   {
