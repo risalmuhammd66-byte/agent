@@ -188,40 +188,34 @@ namespace Agent
         {
             try
             {
-                var stream = client.GetStream();
-                stream.ReadTimeout = 10000;
+                var socket = client.Client;
+                socket.ReceiveTimeout = 10000;
+                var buffer = new byte[256];
 
-                // Send SSH banner first (SSH protocol: server sends banner first)
-                // This causes SSH clients to respond with their own SSH banner
-                // Bot clients will respond with "HELLO <id>"
-                byte[] banner = Encoding.UTF8.GetBytes("SSH-2.0-AgentSSH\r\n");
-                stream.Write(banner, 0, banner.Length);
+                // Read client first message
+                int received = socket.Receive(buffer, 0, buffer.Length, SocketFlags.None);
+                socket.ReceiveTimeout = 0;
 
-                // Read client's response to determine type
-                var readBuffer = new byte[256];
-                int n = stream.Read(readBuffer, 0, readBuffer.Length);
-
-                stream.ReadTimeout = 0;
-
-                if (n <= 0)
+                if (received <= 0)
                 {
                     client.Close();
                     return;
                 }
 
-                // If client responded with SSH banner, route to internal SSH server
-                if (n >= 4 &&
-                    readBuffer[0] == (byte)'S' &&
-                    readBuffer[1] == (byte)'S' &&
-                    readBuffer[2] == (byte)'H' &&
-                    readBuffer[3] == (byte)'-')
+                if (received >= 4 &&
+                    buffer[0] == (byte)'S' &&
+                    buffer[1] == (byte)'S' &&
+                    buffer[2] == (byte)'H' &&
+                    buffer[3] == (byte)'-')
                 {
-                    ProxyToInternalSsh(client, readBuffer, n);
+                    // Client is SSH
+                    ProxyToInternalSsh(client, buffer, received);
                 }
                 else
                 {
-                    // Bot client - handle directly, pass pre-read data
-                    HandleBotClient(client, stream, readBuffer, n);
+                    // Client is Bot
+                    var stream = client.GetStream();
+                    HandleBotClient(client, stream, buffer, received);
                 }
             }
             catch
