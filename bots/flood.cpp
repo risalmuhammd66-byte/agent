@@ -8,8 +8,10 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
+#ifndef NO_SSL
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#endif
 #include <random>
 #include <string>
 #include <sys/socket.h>
@@ -328,6 +330,7 @@ static void worker_http(const std::string &method, const std::string &host, cons
     }
 }
 
+#ifndef NO_SSL
 static void worker_https(const std::string &method, SSL_CTX *ctx, const std::string &host, const std::string &target_ip, int port, const std::string &path) {
     struct sockaddr_in sin{};
     sin.sin_family = AF_INET;
@@ -383,6 +386,12 @@ static void worker_https(const std::string &method, SSL_CTX *ctx, const std::str
         close(sock);
     }
 }
+#else
+static void worker_https(const std::string &method, void *ctx, const std::string &host, const std::string &target_ip, int port, const std::string &path) {
+    (void)ctx;
+    worker_http(method, host, target_ip, port, path);
+}
+#endif
 
 // ==================== MAIN DISPATCHER ====================
 int main(int argc, char *argv[]) {
@@ -433,11 +442,15 @@ int main(int argc, char *argv[]) {
     std::cout << "[+] Duration : " << duration << "s\n";
     std::cout << "[+] Threads  : " << threads << "\n";
 
+#ifndef NO_SSL
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
     const SSL_METHOD *ssl_method = TLS_client_method();
     SSL_CTX *ssl_ctx = SSL_CTX_new(ssl_method);
+#else
+    void *ssl_ctx = nullptr;
+#endif
 
     std::vector<std::thread> thread_pool;
 
@@ -471,7 +484,9 @@ int main(int argc, char *argv[]) {
         if (t.joinable()) t.join();
     }
 
+#ifndef NO_SSL
     if (ssl_ctx) SSL_CTX_free(ssl_ctx);
+#endif
 
     std::cout << "[+] Finished. Total packets/requests sent: " << g_total_packets.load() << "\n";
     return 0;

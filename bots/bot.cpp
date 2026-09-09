@@ -101,7 +101,7 @@ int main(int argc, char **argv)
     setvbuf(stderr, NULL, _IONBF, 0);
 
     char current_host[128] = "127.0.0.1";
-    int current_port = 1338;
+    int current_port = 1337;
 
     signal(SIGPIPE, SIG_IGN);
     gethostname(idbuf, sizeof(idbuf) - 1);
