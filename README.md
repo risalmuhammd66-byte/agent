@@ -121,11 +121,11 @@ This produces optimized binaries in the `bots/` directory:
 
 ### Starting the Agent Server
 ```bash
-# Run with default ports (SSH: 1337, Bot Listener: 1338)
+# Run with default port (Unified SSH & Bot on 1337)
 ./agent
 
-# Or specify custom ports
-./agent -p 2222 -b 2223
+# Or specify a custom port
+./agent -p 11665
 ```
 
 ### Starting the Bot Client

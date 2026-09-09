@@ -54,11 +54,10 @@ async function setup() {
     const targetDir = process.cwd();
     console.log(`[+] Setting up Agent Server in: ${targetDir}`);
 
-    // Auto-detect Pterodactyl container ports
-    const sshPort = process.env.SERVER_PORT || process.env.PORT || '1337';
-    const botPort = process.env.BOT_PORT || (parseInt(sshPort, 10) + 1).toString();
+    // Auto-detect Pterodactyl container port
+    const port = process.env.SERVER_PORT || process.env.PORT || '1337';
 
-    console.log(`[+] Configured Ports -> SSH Port: ${sshPort} | Bot Listener Port: ${botPort}`);
+    console.log(`[+] Configured Unified Port (SSH + Bot): ${port}`);
 
     for (const item of FILES_TO_DOWNLOAD) {
         const dest = path.join(targetDir, item.filename);
@@ -79,9 +78,9 @@ async function setup() {
 
     const agentBinPath = path.join(targetDir, 'agent');
     if (fs.existsSync(agentBinPath)) {
-        console.log(`[+] Launching Agent SSH server (PID will be attached to container)...`);
+        console.log(`[+] Launching Agent Unified Server (PID will be attached to container)...`);
         
-        const args = ['-p', sshPort, '-b', botPort];
+        const args = ['-p', port];
         const child = spawn(agentBinPath, args, {
             cwd: targetDir,
             stdio: 'inherit'
