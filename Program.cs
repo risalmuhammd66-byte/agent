@@ -272,7 +272,10 @@ namespace Agent
                         }
                     }
                     catch { }
-                    finally { cts.Cancel(); }
+                    finally
+                    {
+                        try { cts.Cancel(); } catch { }
+                    }
                 });
 
                 var t2 = Task.Run(async () =>
@@ -289,8 +292,17 @@ namespace Agent
                         }
                     }
                     catch { }
-                    finally { cts.Cancel(); }
+                    finally
+                    {
+                        try { cts.Cancel(); } catch { }
+                    }
                 });
+
+                try
+                {
+                    Task.WaitAll(new Task[] { t1, t2 }, 1500, cts.Token);
+                }
+                catch { }
 
                 Task.WaitAny(t1, t2);
             }
