@@ -476,42 +476,43 @@ namespace Agent
             {
                 byte b = data[i];
 
-                if (state.InEscape)
-                {
-                    state.EscapeSeq.Add(b);
-
-                    // CSI sequence parsing: starts with 0x1b, '[', followed by parameter bytes, ending with final byte (0x40 - 0x7E)
-                    if (state.EscapeSeq.Count >= 2 && state.EscapeSeq[0] == 0x1B && state.EscapeSeq[1] == (byte)'[')
-                    {
-                        if (b >= 0x40 && b <= 0x7E)
-                        {
-                            // Sequence complete
-                            HandleEscapeSequence(channel, state, state.EscapeSeq);
-                            state.InEscape = false;
-                            state.EscapeSeq.Clear();
-                        }
-                    }
-                    else if (state.EscapeSeq.Count >= 2 && state.EscapeSeq[0] == 0x1B && state.EscapeSeq[1] == (byte)'O')
-                    {
-                        // SS3 sequence (e.g., \x1bOA, \x1bOB)
-                        HandleEscapeSequence(channel, state, state.EscapeSeq);
-                        state.InEscape = false;
-                        state.EscapeSeq.Clear();
-                    }
-                    else if (state.EscapeSeq.Count > 8)
-                    {
-                        // Too long / unknown escape, discard
-                        state.InEscape = false;
-                        state.EscapeSeq.Clear();
-                    }
-                    continue;
-                }
-
                 if (b == 0x1B) // ESC
                 {
                     state.InEscape = true;
                     state.EscapeSeq.Clear();
                     state.EscapeSeq.Add(b);
+                    continue;
+                }
+
+                if (state.InEscape)
+                {
+                    state.EscapeSeq.Add(b);
+
+                    // If sequence starts with \x1b[
+                    if (state.EscapeSeq.Count >= 2 && state.EscapeSeq[0] == 0x1B && state.EscapeSeq[1] == (byte)'[')
+                    {
+                        // Final characters for CSI are typically @ through ~ (0x40 - 0x7E)
+                        if (state.EscapeSeq.Count >= 3 && b >= 0x40 && b <= 0x7E)
+                        {
+                            HandleEscapeSequence(channel, state, state.EscapeSeq);
+                            state.InEscape = false;
+                            state.EscapeSeq.Clear();
+                        }
+                    }
+                    else if (state.EscapeSeq.Count >= 2 && state.EscapeSeq[0] == 0x1B && (state.EscapeSeq[1] == (byte)'O' || state.EscapeSeq[1] == (byte)'N'))
+                    {
+                        if (state.EscapeSeq.Count >= 3)
+                        {
+                            HandleEscapeSequence(channel, state, state.EscapeSeq);
+                            state.InEscape = false;
+                            state.EscapeSeq.Clear();
+                        }
+                    }
+                    else if (state.EscapeSeq.Count > 10)
+                    {
+                        state.InEscape = false;
+                        state.EscapeSeq.Clear();
+                    }
                     continue;
                 }
 
@@ -595,7 +596,7 @@ namespace Agent
         {
             string s = Encoding.ASCII.GetString(seq.ToArray());
 
-            if (s == "\x1b[A" || s == "\x1bOA") // UP Arrow
+            if (s == "\x1b[A" || s == "\x1bOA" || s.EndsWith("A")) // UP Arrow
             {
                 if (state.History.Count == 0) return;
 
@@ -611,7 +612,7 @@ namespace Agent
 
                 SetInputBuffer(channel, state, state.History[state.HistoryIndex]);
             }
-            else if (s == "\x1b[B" || s == "\x1bOB") // DOWN Arrow
+            else if (s == "\x1b[B" || s == "\x1bOB" || s.EndsWith("B")) // DOWN Arrow
             {
                 if (state.HistoryIndex == -1) return;
 
@@ -626,7 +627,7 @@ namespace Agent
                     SetInputBuffer(channel, state, state.SavedCurrentInput);
                 }
             }
-            else if (s == "\x1b[C" || s == "\x1bOC") // RIGHT Arrow
+            else if (s == "\x1b[C" || s == "\x1bOC" || s.EndsWith("C")) // RIGHT Arrow
             {
                 if (state.CursorPos < state.Buffer.Length)
                 {
@@ -634,7 +635,7 @@ namespace Agent
                     channel.SendData(Encoding.ASCII.GetBytes("\x1b[C"));
                 }
             }
-            else if (s == "\x1b[D" || s == "\x1bOD") // LEFT Arrow
+            else if (s == "\x1b[D" || s == "\x1bOD" || s.EndsWith("D")) // LEFT Arrow
             {
                 if (state.CursorPos > 0)
                 {
