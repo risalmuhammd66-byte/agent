@@ -17,6 +17,7 @@ flood: flood.cpp
 	@if [ -x "$(ZIG)" ]; then \
 		$(ZIG) c++ -target x86_64-linux-musl -mcpu=x86_64 -static -Os -s -fno-exceptions -fno-rtti -pthread -DNO_SSL flood.cpp -o flood; \
 	else \
+		$(CXX) $(CXXFLAGS) -march=x86-64 -mtune=generic -o flood flood.cpp -lssl -lcrypto 2>/dev/null || \
 		$(CXX) $(CXXFLAGS) -march=x86-64 -mtune=generic -static -DNO_SSL -o flood flood.cpp; \
 	fi
 

