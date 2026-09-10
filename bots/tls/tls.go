@@ -21,7 +21,7 @@ type statsType struct {
 var stats statsType
 
 const (
-	maxConnsPerHost     = 500
+	maxConnsPerHost     = 100000
 	maxIdleConnDuration = 30 * time.Second
 	readTimeout         = 10 * time.Second
 	writeTimeout        = 10 * time.Second
@@ -52,17 +52,9 @@ func buildClient() *fasthttp.Client {
 }
 
 func setHeaders(req *fasthttp.Request) {
-  req.Header.SetMethod("GET")
-  req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0")
-  req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-  req.Header.Set("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
-  req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-  req.Header.Set("Upgrade-Insecure-Requests", "1")
-  req.Header.Set("Sec-Fetch-Dest", "document")
-  req.Header.Set("Sec-Fetch-Mode", "navigate")
-  req.Header.Set("Sec-Fetch-Site", "none")
-  req.Header.Set("Sec-Fetch-User", "?1")
-  req.Header.Set("Priority", "u=1")
+    req.Header.SetMethod("GET")
+    req.Header.Set("User-Agent", "curl/8.7.1")
+    req.Header.Set("Accept", "*/*")
 }
 
 func makeRequest(client *fasthttp.Client, target string) bool {
