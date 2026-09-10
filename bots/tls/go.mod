@@ -1,7 +1,11 @@
-module agent/bots/tls
+module asu
 
-go 1.22
+go 1.27.1
 
-require golang.org/x/net v0.21.0
+require github.com/valyala/fasthttp v1.74.0
 
-require golang.org/x/text v0.14.0 // indirect
+require (
+	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/molecule-man/go-brrr v1.0.1 // indirect
+	github.com/valyala/bytebufferpool v1.0.0 // indirect
+)
