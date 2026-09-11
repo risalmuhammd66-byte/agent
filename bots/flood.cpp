@@ -57,6 +57,32 @@
 static std::atomic<bool>     g_running(true);
 static std::atomic<uint64_t> g_total_sent(0);
 
+// ── L7 tick pacing ────────────────────────────────────────────────────
+// 1 tick = PER_TICK_MS (50 ms). Each tick provides exactly PER_TICK_REQS
+// request tokens shared across ALL worker threads. When the budget is
+// exhausted, workers idle until the next tick rolls over → steady
+// PER_TICK_REQS requests every 50 ms (= 2000 req/s) regardless of threads.
+static const int           PER_TICK_MS   = 50;
+static const int           PER_TICK_REQS = 100;
+static std::atomic<int>    g_tick_no{0};
+static std::atomic<int>    g_tick_budget{PER_TICK_REQS};
+
+static bool acquire_tick_slot() {
+    using namespace std::chrono;
+    static const auto start = steady_clock::now();
+
+    int tick = (int)(duration_cast<milliseconds>(steady_clock::now() - start).count() / PER_TICK_MS);
+    int cur  = g_tick_no.load(std::memory_order_acquire);
+    if (cur != tick) {
+        int expect = cur;
+        if (g_tick_no.compare_exchange_strong(expect, tick, std::memory_order_acq_rel)) {
+            g_tick_budget.store(PER_TICK_REQS, std::memory_order_release);
+        }
+    }
+    int before = g_tick_budget.fetch_sub(1, std::memory_order_acq_rel);
+    return before > 0;
+}
+
 // =====================================================================
 // UTILITIES
 // =====================================================================
@@ -316,20 +342,33 @@ static void worker_http1(const std::string &method_name,
     inet_pton(AF_INET, ip.c_str(), &sin.sin_addr);
 
     std::string http_verb = (method_name == "post") ? "POST" : "GET";
+    int sock = -1;
 
     while (g_running.load(std::memory_order_relaxed)) {
-        int sock = tcp_connect(sin, 3000);
-        if (sock < 0) { std::this_thread::sleep_for(std::chrono::milliseconds(30)); continue; }
-
-        for (int r = 0; r < 128 && g_running.load(std::memory_order_relaxed); ++r) {
-            std::string req = build_h1_request(method_name, http_verb, host, path, port);
-            if (send(sock, req.c_str(), req.size(), MSG_NOSIGNAL) <= 0) break;
-            g_total_sent.fetch_add(1, std::memory_order_relaxed);
-            char drain[4096];
-            while (recv(sock, drain, sizeof(drain), MSG_DONTWAIT) > 0) {}
+        // Wait for a request token from the current tick budget
+        if (!acquire_tick_slot()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            continue;
         }
-        close(sock);
+
+        // Re-open connection if needed
+        if (sock < 0) {
+            sock = tcp_connect(sin, 3000);
+            if (sock < 0) continue;
+        }
+
+        std::string req = build_h1_request(method_name, http_verb, host, path, port);
+        if (send(sock, req.c_str(), req.size(), MSG_NOSIGNAL) <= 0) {
+            close(sock); sock = -1;
+            continue;
+        }
+        g_total_sent.fetch_add(1, std::memory_order_relaxed);
+
+        // Drain responses without blocking
+        char drain[4096];
+        while (recv(sock, drain, sizeof(drain), MSG_DONTWAIT) > 0) {}
     }
+    if (sock >= 0) close(sock);
 }
 
 // =====================================================================
@@ -351,7 +390,7 @@ struct H2Conn {
     bool         error = false;
     int          streams_open = 0;
     int          streams_sent = 0;
-    const int    MAX_STREAMS  = 100; // per connection burst
+    int          MAX_STREAMS  = 100; // per connection lifetime (rotated)
 };
 
 static ssize_t h2_send_cb(nghttp2_session *, const uint8_t *data, size_t length,
@@ -543,123 +582,119 @@ static void worker_http2(const std::string &method_name,
     sin.sin_port   = htons(port > 0 ? port : 443);
     inet_pton(AF_INET, ip.c_str(), &sin.sin_addr);
 
-    while (g_running.load(std::memory_order_relaxed)) {
-        // --- TCP connect ---
-        int fd = tcp_connect(sin, 3000);
-        if (fd < 0) { std::this_thread::sleep_for(std::chrono::milliseconds(30)); continue; }
+    bool have_conn = false;
+    H2Conn conn;
 
-        // --- TLS handshake ---
-        SSL *ssl = SSL_new(ssl_ctx);
-        if (!ssl) { close(fd); continue; }
-        SSL_set_fd(ssl, fd);
-
-        // SNI
-        struct in_addr addr_test{};
-        if (inet_pton(AF_INET, host.c_str(), &addr_test) != 1)
-            SSL_set_tlsext_host_name(ssl, host.c_str());
-
-        // Non-blocking TLS handshake via poll
-        SSL_set_connect_state(ssl);
-        {
-            bool hs_done = false;
-            for (int attempt = 0; attempt < 50 && !hs_done; ++attempt) {
-                int ret = SSL_do_handshake(ssl);
-                if (ret == 1) { hs_done = true; break; }
-                int err = SSL_get_error(ssl, ret);
-                struct pollfd pfd{fd, 0, 0};
-                if (err == SSL_ERROR_WANT_READ)  pfd.events = POLLIN;
-                else if (err == SSL_ERROR_WANT_WRITE) pfd.events = POLLOUT;
-                else break;
-                if (poll(&pfd, 1, 200) <= 0) break;
-            }
-            if (!hs_done) { SSL_free(ssl); close(fd); continue; }
+    auto teardown = [&]() {
+        if (conn.session) {
+            nghttp2_submit_goaway(conn.session, NGHTTP2_FLAG_NONE, 0,
+                                   NGHTTP2_NO_ERROR, nullptr, 0);
+            nghttp2_session_send(conn.session);
+            nghttp2_session_del(conn.session);
+            conn.session = nullptr;
         }
+        if (conn.ssl)  { SSL_shutdown(conn.ssl); SSL_free(conn.ssl); conn.ssl = nullptr; }
+        if (conn.fd >= 0) { close(conn.fd); conn.fd = -1; }
+        have_conn = false;
+    };
 
-        // Verify ALPN negotiated h2
-        const unsigned char *alpn = nullptr; unsigned int alpn_len = 0;
-        SSL_get0_alpn_selected(ssl, &alpn, &alpn_len);
-        bool got_h2 = (alpn && alpn_len == 2 && alpn[0] == 'h' && alpn[1] == '2');
-
-        if (!got_h2) {
-            // Server doesn't support H2 → fall through to H1
-            SSL_free(ssl); close(fd);
-            // Dispatch single H1 request via SSL manually
-            // (handled by caller choosing worker_https instead)
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    while (g_running.load(std::memory_order_relaxed)) {
+        if (!acquire_tick_slot()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
 
-        // --- Setup nghttp2 session ---
-        H2Conn conn;
-        conn.fd          = fd;
-        conn.ssl         = ssl;
-        conn.host        = host;
-        conn.path        = path;
-        conn.method_name = method_name;
-        conn.port        = port;
+        // Lazy connect + TLS + h2 session, kept alive across ticks
+        if (!have_conn) {
+            conn = H2Conn{}; // reset state
+            conn.fd = tcp_connect(sin, 3000);
+            if (conn.fd < 0) continue;
 
-        nghttp2_session_callbacks *cbs = nullptr;
-        nghttp2_session_callbacks_new(&cbs);
-        nghttp2_session_callbacks_set_send_callback(cbs, h2_send_cb);
-        nghttp2_session_callbacks_set_recv_callback(cbs, h2_recv_cb);
-        nghttp2_session_callbacks_set_on_frame_send_callback(cbs, h2_on_frame_send_cb);
-        nghttp2_session_callbacks_set_on_stream_close_callback(cbs, h2_on_stream_close_cb);
-        nghttp2_session_callbacks_set_on_data_chunk_recv_callback(cbs, h2_on_data_chunk_recv_cb);
-        nghttp2_session_callbacks_set_on_header_callback(cbs, h2_on_header_cb);
+            conn.ssl = SSL_new(ssl_ctx);
+            if (!conn.ssl) { close(conn.fd); conn.fd = -1; continue; }
+            SSL_set_fd(conn.ssl, conn.fd);
 
-        nghttp2_session_client_new(&conn.session, cbs, &conn);
-        nghttp2_session_callbacks_del(cbs);
+            struct in_addr at{};
+            if (inet_pton(AF_INET, host.c_str(), &at) != 1)
+                SSL_set_tlsext_host_name(conn.ssl, host.c_str());
 
-        // Client preface + settings
-        nghttp2_settings_entry iv[] = {
-            {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 250},
-            {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,    65535},
-            {NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,      4096},
-            {NGHTTP2_SETTINGS_ENABLE_PUSH,            0},
-        };
-        nghttp2_submit_settings(conn.session, NGHTTP2_FLAG_NONE, iv,
-                                sizeof(iv) / sizeof(iv[0]));
-
-        // Pump loop: submit requests in bursts, recv responses
-        while (!conn.error && g_running.load(std::memory_order_relaxed)) {
-            // Submit burst of requests up to MAX_STREAMS
-            while (conn.streams_open < 200 &&
-                   conn.streams_sent < conn.MAX_STREAMS &&
-                   !conn.error) {
-                if (h2_submit_request(&conn) < 0) { conn.error = true; break; }
-            }
-
-            // Send pending frames
-            int rc = nghttp2_session_send(conn.session);
-            if (rc < 0) { conn.error = true; break; }
-
-            // Receive incoming frames (non-blocking)
-            // Set socket to non-blocking temporarily
+            // Non-blocking TLS handshake
+            SSL_set_connect_state(conn.ssl);
             {
-                int fl = fcntl(fd, F_GETFL, 0);
-                fcntl(fd, F_SETFL, fl | O_NONBLOCK);
-                rc = nghttp2_session_recv(conn.session);
-                fcntl(fd, F_SETFL, fl);
+                bool hs_done = false;
+                for (int attempt = 0; attempt < 50 && !hs_done; ++attempt) {
+                    int ret = SSL_do_handshake(conn.ssl);
+                    if (ret == 1) { hs_done = true; break; }
+                    int err = SSL_get_error(conn.ssl, ret);
+                    struct pollfd pfd{conn.fd, 0, 0};
+                    if (err == SSL_ERROR_WANT_READ)  pfd.events = POLLIN;
+                    else if (err == SSL_ERROR_WANT_WRITE) pfd.events = POLLOUT;
+                    else break;
+                    if (poll(&pfd, 1, 200) <= 0) break;
+                }
+                if (!hs_done) { teardown(); continue; }
             }
-            if (rc < 0 && rc != NGHTTP2_ERR_WOULDBLOCK) { conn.error = true; break; }
 
-            // If burst complete and all streams closed, send GOAWAY + reconnect
-            if (conn.streams_sent >= conn.MAX_STREAMS && conn.streams_open <= 0) break;
+            // Require h2 via ALPN; otherwise server can't do H2
+            const unsigned char *alpn = nullptr; unsigned int alpn_len = 0;
+            SSL_get0_alpn_selected(conn.ssl, &alpn, &alpn_len);
+            bool got_h2 = (alpn && alpn_len == 2 && alpn[0] == 'h' && alpn[1] == '2');
+            if (!got_h2) { teardown(); continue; }
 
-            std::this_thread::yield();
+            conn.host        = host;
+            conn.path        = path;
+            conn.method_name = method_name;
+            conn.port        = port;
+            conn.MAX_STREAMS = 1000; // keep connection alive
+
+            nghttp2_session_callbacks *cbs = nullptr;
+            nghttp2_session_callbacks_new(&cbs);
+            nghttp2_session_callbacks_set_send_callback(cbs, h2_send_cb);
+            nghttp2_session_callbacks_set_recv_callback(cbs, h2_recv_cb);
+            nghttp2_session_callbacks_set_on_frame_send_callback(cbs, h2_on_frame_send_cb);
+            nghttp2_session_callbacks_set_on_stream_close_callback(cbs, h2_on_stream_close_cb);
+            nghttp2_session_callbacks_set_on_data_chunk_recv_callback(cbs, h2_on_data_chunk_recv_cb);
+            nghttp2_session_callbacks_set_on_header_callback(cbs, h2_on_header_cb);
+            nghttp2_session_client_new(&conn.session, cbs, &conn);
+            nghttp2_session_callbacks_del(cbs);
+
+            nghttp2_settings_entry iv[] = {
+                {NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, 250},
+                {NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,    65535},
+                {NGHTTP2_SETTINGS_HEADER_TABLE_SIZE,      4096},
+                {NGHTTP2_SETTINGS_ENABLE_PUSH,            0},
+            };
+            nghttp2_submit_settings(conn.session, NGHTTP2_FLAG_NONE, iv,
+                                    sizeof(iv) / sizeof(iv[0]));
+            nghttp2_session_send(conn.session);
+            have_conn = true;
         }
 
-        // Clean close
-        nghttp2_submit_goaway(conn.session, NGHTTP2_FLAG_NONE, 0,
-                               NGHTTP2_NO_ERROR, nullptr, 0);
-        nghttp2_session_send(conn.session);
-        nghttp2_session_del(conn.session);
-        SSL_shutdown(ssl);
-        SSL_free(ssl);
-        close(fd);
-    }
-}
+        // One token = one H2 stream (request)
+        if (h2_submit_request(&conn) < 0) { teardown(); continue; }
 
+        // Flush pending frames
+        int rc = nghttp2_session_send(conn.session);
+        if (rc < 0) { teardown(); continue; }
+
+        // Drain inbound frames non-blocking
+        {
+            int fl = fcntl(conn.fd, F_GETFL, 0);
+            fcntl(conn.fd, F_SETFL, fl | O_NONBLOCK);
+            rc = nghttp2_session_recv(conn.session);
+            fcntl(conn.fd, F_SETFL, fl);
+            if (rc < 0 && rc != NGHTTP2_ERR_WOULDBLOCK) { teardown(); continue; }
+        }
+
+        // If connection serving a max lifetime of streams, rotate
+        if (conn.streams_sent >= conn.MAX_STREAMS && conn.streams_open <= 0) {
+            teardown();
+            continue;
+        }
+    }
+
+    teardown();
+}
 #endif // NO_HTTP2
 
 // =====================================================================
@@ -677,36 +712,55 @@ static void worker_https1(const std::string &method_name,
     inet_pton(AF_INET, ip.c_str(), &sin.sin_addr);
 
     std::string http_verb = (method_name == "post") ? "POST" : "GET";
+    SSL *ssl = nullptr;
+    int  sock = -1;
 
     while (g_running.load(std::memory_order_relaxed)) {
-        int sock = tcp_connect(sin, 3000);
-        if (sock < 0) { std::this_thread::sleep_for(std::chrono::milliseconds(30)); continue; }
+        if (!acquire_tick_slot()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            continue;
+        }
 
-        SSL *ssl = SSL_new(ctx);
-        if (!ssl) { close(sock); continue; }
-        SSL_set_fd(ssl, sock);
+        // Lazy connect + TLS handshake, keep connection alive across ticks
+        if (sock < 0) {
+            sock = tcp_connect(sin, 3000);
+            if (sock < 0) continue;
+            ssl = SSL_new(ctx);
+            if (!ssl) { close(sock); sock = -1; continue; }
+            SSL_set_fd(ssl, sock);
 
-        struct in_addr at{};
-        if (inet_pton(AF_INET, host.c_str(), &at) != 1)
-            SSL_set_tlsext_host_name(ssl, host.c_str());
+            struct in_addr at{};
+            if (inet_pton(AF_INET, host.c_str(), &at) != 1)
+                SSL_set_tlsext_host_name(ssl, host.c_str());
 
-        if (SSL_connect(ssl) > 0) {
-            for (int r = 0; r < 128 && g_running.load(std::memory_order_relaxed); ++r) {
-                std::string req = build_h1_request(method_name, http_verb, host, path, port);
-                if (SSL_write(ssl, req.c_str(), (int)req.size()) <= 0) break;
-                g_total_sent.fetch_add(1, std::memory_order_relaxed);
-                while (SSL_pending(ssl) > 0) {
-                    char drain[4096];
-                    if (SSL_read(ssl, drain, sizeof(drain)) <= 0) break;
-                }
-                struct pollfd pfd{sock, POLLIN, 0};
-                if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
-                    char drain[4096]; SSL_read(ssl, drain, sizeof(drain));
-                }
+            if (SSL_connect(ssl) <= 0) {
+                SSL_free(ssl); close(sock); ssl = nullptr; sock = -1;
+                continue;
             }
         }
-        SSL_shutdown(ssl); SSL_free(ssl); close(sock);
+
+        std::string req = build_h1_request(method_name, http_verb, host, path, port);
+        if (SSL_write(ssl, req.c_str(), (int)req.size()) <= 0) {
+            SSL_shutdown(ssl); SSL_free(ssl); close(sock); ssl = nullptr; sock = -1;
+            continue;
+        }
+        g_total_sent.fetch_add(1, std::memory_order_relaxed);
+
+        // Drain responses without blocking
+        while (SSL_pending(ssl) > 0) {
+            char drain[4096];
+            if (SSL_read(ssl, drain, sizeof(drain)) <= 0) break;
+        }
+        struct pollfd pfd{sock, POLLIN, 0};
+        if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
+            char drain[4096]; SSL_read(ssl, drain, sizeof(drain));
+        }
     }
+
+    if (ssl) {
+        SSL_shutdown(ssl); SSL_free(ssl);
+    }
+    if (sock >= 0) close(sock);
 }
 
 #else
