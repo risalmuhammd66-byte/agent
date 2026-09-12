@@ -5,5 +5,3 @@ obj/
 *.suo
 temp.md
 agentv2/hostkey_*.pem
-agentv2/agentv2
-methods_cpp/flood

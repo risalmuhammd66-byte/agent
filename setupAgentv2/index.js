@@ -14,6 +14,7 @@ const { spawn } = require('child_process');
 const REPO_BASE = 'https://raw.githubusercontent.com/risalmuhammd66-byte/agent/main';
 
 const FILES_TO_DOWNLOAD = [
+    { url: `${REPO_BASE}/agentv2/agentv2`, filename: 'agentv2', executable: true },
     { url: `${REPO_BASE}/agentv2/methods.json`, filename: 'methods.json', executable: false },
     { url: `${REPO_BASE}/agentv2/users.json`, filename: 'users.json', executable: false }
 ];
