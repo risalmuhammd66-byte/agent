@@ -269,29 +269,19 @@ static std::string build_h1_request(const std::string &method_name,
 
     std::string req;
     req.reserve(1200);
+
+    // If method is browser or any L7, use pure Googlebot identity without client-hints to avoid Cloudflare device detection
+    const std::string googlebot_ua = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+
     req += http_verb + " " + path + " HTTP/1.1\r\n";
     req += "Host: " + host_hdr + "\r\n";
-    req += "User-Agent: " + pick(UA_POOL) + "\r\n";
-    req += "Accept: " + pick(ACCEPT_POOL) + "\r\n";
-    req += "Accept-Language: " + pick(ACCEPT_LANG_POOL) + "\r\n";
+    req += "User-Agent: " + googlebot_ua + "\r\n";
+    req += "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n";
     req += "Accept-Encoding: gzip, deflate, br\r\n";
-
-    bool is_chrome = true; // vary fingerprint
-    if (is_chrome) {
-        req += "Sec-Ch-Ua: " + pick(SEC_CH_UA_POOL) + "\r\n";
-        req += "Sec-Ch-Ua-Mobile: ?" + std::to_string(rand_int(0,1)) + "\r\n";
-        req += "Sec-Ch-Ua-Platform: " + pick(SEC_CH_PLATFORM_POOL) + "\r\n";
-        req += "Sec-Fetch-Dest: document\r\n";
-        req += "Sec-Fetch-Mode: navigate\r\n";
-        req += "Sec-Fetch-Site: " + std::string(rand_int(0,1) ? "none" : "cross-site") + "\r\n";
-        req += "Sec-Fetch-User: ?1\r\n";
-        req += "Upgrade-Insecure-Requests: 1\r\n";
-    }
-
-    req += "Referer: " + pick(REFERER_POOL) + host + "\r\n";
+    req += "From: googlebot(at)googlebot.com\r\n";
 
     // Cache bypass headers
-    if (method_name == "cache" || method_name == "bypass" || method_name == "cloudflare") {
+    if (method_name == "cache" || method_name == "bypass" || method_name == "cloudflare" || method_name == "browser") {
         req += "Cache-Control: no-cache, no-store, must-revalidate, max-age=0\r\n";
         req += "Pragma: no-cache\r\n";
         req += "Expires: 0\r\n";
