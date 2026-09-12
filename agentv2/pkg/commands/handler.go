@@ -215,8 +215,8 @@ func (h *CommandHandler) methodsMenu() string {
 	sb.WriteString("\r\n")
 	sb.WriteString(fmt.Sprintf("  %s\r\n", rule))
 	sb.WriteString(fmt.Sprintf("  %s%-10s%s  %s.method %s<host> <port> <time>%s\r\n", CKey, "l4 usage", C0, CDesc, CVal, C0))
-	sb.WriteString(fmt.Sprintf("  %s%-10s%s  %s.method %s<url> <port> <time>  %s(port 0 = auto)%s\r\n", CKey, "l7 usage", C0, CDesc, CVal, CDim, C0))
-	sb.WriteString(fmt.Sprintf("  %s%-10s%s  %s.http2 %shttps://example.com %s443 60%s\r\n", CKey, "example", C0, CCmd, CUrl, CNum, C0))
+	sb.WriteString(fmt.Sprintf("  %s%-10s%s  %s.method %s<url> <time>%s\r\n", CKey, "l7 usage", C0, CDesc, CVal, C0))
+	sb.WriteString(fmt.Sprintf("  %s%-10s%s  %s.bypass %shttps://example.com %s60%s\r\n", CKey, "example", C0, CCmd, CUrl, CNum, C0))
 	sb.WriteString("\r\n")
 
 	return sb.String()
