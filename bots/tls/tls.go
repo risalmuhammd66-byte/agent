@@ -21,7 +21,7 @@ type statsType struct {
 var stats statsType
 
 const (
-	maxConnsPerHost     = 100000
+	maxConnsPerHost     = 15000
 	maxIdleConnDuration = 30 * time.Second
 	readTimeout         = 10 * time.Second
 	writeTimeout        = 10 * time.Second
