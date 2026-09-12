@@ -35,12 +35,12 @@ else
     echo "[!] agentv2 binary not found. Please compile it first with 'go build ./cmd/agent'"
 fi
 
-# Copy configurations if exist
-if [ -f "${PARENT_DIR}/users.json" ]; then
-    cp -n "${PARENT_DIR}/users.json" "${INSTALL_DIR}/users.json" 2>/dev/null || true
+# Copy agentv2 configurations
+if [ -f "${PARENT_DIR}/agentv2/users.json" ]; then
+    cp -n "${PARENT_DIR}/agentv2/users.json" "${INSTALL_DIR}/users.json" 2>/dev/null || true
 fi
-if [ -f "${PARENT_DIR}/methods.json" ]; then
-    cp -n "${PARENT_DIR}/methods.json" "${INSTALL_DIR}/methods.json" 2>/dev/null || true
+if [ -f "${PARENT_DIR}/agentv2/methods.json" ]; then
+    cp -n "${PARENT_DIR}/agentv2/methods.json" "${INSTALL_DIR}/methods.json" 2>/dev/null || true
 fi
 
 chmod +x "${INSTALL_DIR}/agentv2" 2>/dev/null || true

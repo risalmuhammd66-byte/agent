@@ -84,16 +84,14 @@ func main() {
 }
 
 func resolvePath(path, exeDir string) string {
+	// 1. Current working directory
 	if _, err := os.Stat(path); err == nil {
 		return path
 	}
+	// 2. Binary directory
 	candExe := filepath.Join(exeDir, path)
 	if _, err := os.Stat(candExe); err == nil {
 		return candExe
-	}
-	candParent := filepath.Join("..", path)
-	if _, err := os.Stat(candParent); err == nil {
-		return candParent
 	}
 	return path
 }
