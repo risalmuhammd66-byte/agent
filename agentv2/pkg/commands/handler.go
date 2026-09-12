@@ -241,16 +241,12 @@ func (h *CommandHandler) dispatchAttack(username string, method config.MethodCon
 		formattedCmd = strings.ReplaceAll(formattedCmd, "{port}", targetPort)
 		formattedCmd = strings.ReplaceAll(formattedCmd, "{time}", attackDuration)
 	} else {
-		if len(args) < 2 {
-			return fmt.Sprintf("  %serror%s  %s│%s  %susage: %s.%s %s<url> <time>%s\r\n",
-				CErr, C0, CDim, C0, CDesc, CCmd, method.Name, CVal, C0)
+		if len(args) != 2 {
+			return fmt.Sprintf("  %serror%s  %s│%s  %susage: %s.%s %s<url> <time>%s  %s(port not allowed on L7)%s\r\n",
+				CErr, C0, CDim, C0, CDesc, CCmd, method.Name, CVal, C0, CDim, C0)
 		}
 		targetHost = args[0]
-		if len(args) >= 3 {
-			attackDuration = args[2]
-		} else {
-			attackDuration = args[1]
-		}
+		attackDuration = args[1]
 		formattedCmd = strings.ReplaceAll(formattedCmd, "{host}", targetHost)
 		formattedCmd = strings.ReplaceAll(formattedCmd, "{time}", attackDuration)
 	}
