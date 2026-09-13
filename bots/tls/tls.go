@@ -33,17 +33,13 @@ const (
 )
 
 var userAgents = []string{
-	// Google Bot
-	"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-	"Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.76 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
-	"Googlebot/2.1 (+http://www.google.com/bot.html)",
-	"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; +http://www.google.com/bot.html) Chrome/125.0.6422.76 Safari/537.36",
-	"Mozilla/5.0 (compatible; Googlebot-Image/1.0; +http://www.google.com/bot.html)",
-	"Googlebot-News",
-	"Googlebot-Video/1.0",
-	"APIs-Google (+https://developers.google.com/webmasters/APIs-Google.html)",
-	"AdsBot-Google (+http://www.google.com/adsbot.html)",
-	"AdsBot-Google-Mobile (+http://www.google.com/adsbot.html)",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.76 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.76 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.82 Safari/537.36",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.6422.76 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:126.0) Gecko/20100101 Firefox/126.0",
 }
 
 var acceptLanguages = []string{
@@ -129,19 +125,37 @@ func buildClient() *fasthttp.Client {
 
 func setHeaders(req *fasthttp.Request, cookie string) {
 	ua := userAgents[rand.Intn(len(userAgents))]
-	lang := acceptLanguages[rand.Intn(len(acceptLanguages))]
+
+	chromeVer := "125"
+	if idx := strings.Index(ua, "Chrome/"); idx != -1 {
+		rest := ua[idx+7:]
+		if dotIdx := strings.Index(rest, "."); dotIdx != -1 {
+			chromeVer = rest[:dotIdx]
+		}
+	}
+	secChUa := fmt.Sprintf(`"Chromium";v="%s", "Not)A;Brand";v="8", "Google Chrome";v="%s"`, chromeVer, chromeVer)
+
+	platform := `"Windows"`
+	if strings.Contains(ua, "Macintosh") {
+		platform = `"macOS"`
+	} else if strings.Contains(ua, "X11") {
+		platform = `"Linux"`
+	}
 
 	req.Header.SetMethod("GET")
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-	req.Header.Set("Accept-Language", lang)
+	req.Header.Set("Accept-Language", acceptLanguages[rand.Intn(len(acceptLanguages))])
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	req.Header.Set("Connection", connections[rand.Intn(len(connections))])
 	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	req.Header.Set("Sec-Ch-Ua", secChUa)
+	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
+	req.Header.Set("Sec-Ch-Ua-Platform", platform)
 	req.Header.Set("Sec-Fetch-Dest", "document")
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Site", secFetchSites[rand.Intn(len(secFetchSites))])
 	req.Header.Set("Sec-Fetch-User", "?1")
+	req.Header.Set("Sec-Fetch-Site", secFetchSites[rand.Intn(len(secFetchSites))])
 	req.Header.Set("Cache-Control", cacheControls[rand.Intn(len(cacheControls))])
 	req.Header.Set("Priority", "u=1, i")
 	req.Header.Set("DNT", "1")
@@ -190,7 +204,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// cookie dari arg atau auto ambil dari chromium
 	cookie := ""
 	if len(os.Args) >= 5 && os.Args[4] != "" {
 		cookie = os.Args[4]
